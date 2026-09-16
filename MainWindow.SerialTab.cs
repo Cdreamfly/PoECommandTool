@@ -42,6 +42,7 @@ namespace WpfApp1
             BuildSerialOptionLists();
             BuildPollList();
             BuildLegend();
+            InitializeDeviceInfo();
 
             TemplateBox.Text = _serialOptions.Template;
             PatternBox.Text = _session.Extractor.Pattern;
@@ -146,16 +147,26 @@ namespace WpfApp1
             }
         }
 
-        private void OpenClose_Click(object sender, RoutedEventArgs e)
+        private async void OpenClose_Click(object sender, RoutedEventArgs e)
         {
             try
             {
                 if (_session.IsOpen)
                 {
+                    // ① 先同步发取消：不等它，但必须发在关串口之前——否则读取会在
+                    //    已经关掉的端口上一直等到超时。
+                    CancelDeviceInfo();
+
+                    // ② 状态同步改完再 await。这个处理器现在是 async 的，await 期间按钮还能点，
+                    //    那时 IsOpen 若还是 true，下一次点击会被误判成「再关一次」而被吞掉。
                     StopPolling("串口已关闭，轮询已停止。");
                     _session.Close();
                     AppendLog("已关闭 " + _portSettings.Describe());
                     UpdateSerialUi();
+
+                    // ③ 最后才等它退干净：它的收尾会把「已取消」写进状态栏，
+                    //    不能让它落到下一次连接上。取消早已发出，不会拖满超时。
+                    await AwaitDeviceInfoStoppedAsync();
                     return;
                 }
 
@@ -164,6 +175,10 @@ namespace WpfApp1
                 _session.Open(_portSettings);
                 AppendLog("已打开 " + _portSettings.Describe());
                 UpdateSerialUi();
+
+                // 刚连上先读一次设备信息：这不是轮询，只有一次往返，但能立刻暴露
+                // 「设备不认这些命令」这类问题，省得用户以为是按钮坏了。
+                await StartDeviceInfoRead();
             }
             catch (Exception ex)
             {
@@ -240,6 +255,7 @@ namespace WpfApp1
             ParityCombo.IsEnabled = canEdit;
             StopBitsCombo.IsEnabled = canEdit;
             RefreshPortsButton.IsEnabled = canEdit;
+            UpdateDeviceInfoUi();
         }
 
         // =================================================================
@@ -284,7 +300,7 @@ namespace WpfApp1
             UpdateSendModeHint();
         }
 
-        private void SendOnce_Click(object sender, RoutedEventArgs e)
+        private async void SendOnce_Click(object sender, RoutedEventArgs e)
         {
             try
             {
@@ -302,15 +318,20 @@ namespace WpfApp1
                 _serialOptions.Template = TemplateBox.Text;
                 _serialOptions.LineEnding = SelectedLineEnding();
 
+                string outgoing = DescribeOutgoing(frame);
                 SendRequest request = _serialOptions.For(frame);
-                _session.SendAsync(request, System.Threading.CancellationToken.None)
-                    .ContinueWith(delegate(Task task)
-                    {
-                        if (task.IsFaulted && task.Exception != null)
-                            AppendLog("发送失败：" + task.Exception.GetBaseException().Message);
-                    });
 
-                AppendLine("[发送] " + DescribeOutgoing(frame));
+                // 手工帧也要走事务锁：它的响应同样可能落进别人（轮询 / 设备信息面板）的等待窗口。
+                // 尤其 0xC0 系命令只按命令 ID 配对——一条手工 0xC0 的回包会被设备信息面板的
+                // 0xC0-04 当成自己的结果，界面上就会凭空冒出一个「配置版本」，而且不报错。
+                // 代价是另一笔事务在跑时要排队，那也比静默显示错值强。
+                using (SerialTransaction transaction =
+                    await _session.BeginTransactionAsync(System.Threading.CancellationToken.None))
+                {
+                    await _session.SendAsync(request, System.Threading.CancellationToken.None);
+                }
+
+                AppendLine("[发送] " + outgoing);
             }
             catch (Exception ex)
             {
@@ -370,6 +391,10 @@ namespace WpfApp1
                 _logTimer.Stop();
             if (_chartTimer != null)
                 _chartTimer.Stop();
+
+            // 先掐设备信息读取，再停轮询：读取可能正持着事务锁在等回包，
+            // 倒过来的话轮询取消后会卡在这把锁上多等一个超时。
+            await ShutdownDeviceInfoAsync();
 
             StopPolling(null);
             if (_pollTask != null)

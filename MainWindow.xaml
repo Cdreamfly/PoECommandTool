@@ -261,6 +261,26 @@
                                   ToolTip="识别规则不匹配时，直接取这一行里前 12 个十六进制字节。默认关闭，因为设备回显行里也有帧，容易被误当成响应。"/>
                         <TextBlock x:Name="PatternHint" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="#888888"/>
                     </WrapPanel>
+
+                    <!-- 设备信息：身份/诊断类命令，点一次读一次，不参与轮询。
+                         特意放在行 2（而不是轮询设置那一行）：行 3 是「最大化」时特意保留的行，
+                         放那儿会让曲线永远腾不出整页空间。 -->
+                    <GroupBox Header="设备信息（手工读取，不轮询）" Margin="0,10,0,0">
+                        <StackPanel>
+                            <WrapPanel>
+                                <Button x:Name="DeviceInfoUpdateButton" Content="更新" Width="72" Height="26"
+                                        Click="DeviceInfoUpdate_Click"
+                                        ToolTip="读取设备身份、配置版本、芯片类型与地址、全局参数、复位原因。读 0x47 时不会清除设备上的复位记录。轮询进行中时不可用（避免与轮询抢串口）。"/>
+                                <TextBlock x:Name="DeviceInfoStatusText" VerticalAlignment="Center"
+                                           Margin="12,0,0,0" Foreground="#888888" Text="尚未读取"/>
+                            </WrapPanel>
+                            <Border BorderBrush="#DDDDDD" BorderThickness="1" Margin="0,6,0,0" MaxHeight="150">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="DeviceInfoPanel" Margin="6"/>
+                                </ScrollViewer>
+                            </Border>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
 
                 <!-- 轮询设置 -->

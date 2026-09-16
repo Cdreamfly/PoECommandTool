@@ -139,6 +139,10 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="MainWindow.SerialInfo.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Serial\HexUtil.cs" />
     <Compile Include="Serial\LineAssembler.cs" />
     <Compile Include="Serial\ISerialTransport.cs" />
@@ -146,6 +150,7 @@
     <Compile Include="Serial\ResponseLineExtractor.cs" />
     <Compile Include="Serial\RawFrameScanner.cs" />
     <Compile Include="Serial\SerialSession.cs" />
+    <Compile Include="Serial\DeviceInfoReader.cs" />
     <Compile Include="Serial\PollPlan.cs" />
     <Compile Include="Serial\PortListParser.cs" />
     <Compile Include="Serial\PollingScheduler.cs" />

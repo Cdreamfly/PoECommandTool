@@ -22,6 +22,9 @@ namespace WpfApp1
 
         private CancellationTokenSource _pollCts;
         private Task _pollTask;
+
+        /// <summary>轮询是否正在进行。与 <see cref="SetPollingUiState"/> 同步维护。</summary>
+        private bool _pollingActive;
         private PollingRunner _runner;
         private int _pollsSent;
         private int _pollsOk;
@@ -88,12 +91,16 @@ namespace WpfApp1
                 _pollCheckBoxes[i].Unchecked += PollItem_Toggled;
             }
 
-            // 需要额外参数的查询命令：列出来但置灰，免得用户以为工具漏了它们
+            // 需要额外参数的查询命令：列出来但置灰，免得用户以为工具漏了它们。
+            // 已被「设备信息」面板接管的（0x47 / 0x4C 等）跳过——它们在那边有正经入口，
+            // 这里再挂一行「暂不支持」会自相矛盾。
             List<CommandDef> all = Rtl8239Catalog.All;
             for (int i = 0; i < all.Count; i++)
             {
                 CommandDef cmd = all[i];
                 if (cmd.Category != Rtl8239Catalog.CatQuery || PollPlan.IsPollable(cmd))
+                    continue;
+                if (DeviceInfoReader.IsCovered(cmd.Key))
                     continue;
 
                 var disabled = new CheckBox
@@ -224,7 +231,7 @@ namespace WpfApp1
                 TextBox portBox = _pollPortBoxes[i];
                 if (portBox == null)
                 {
-                    plan.Items.Add(item);       // 不带端口字段的命令（0x41 / 0x40 / 0x4A / 0x50）
+                    plan.Items.Add(item);       // 不带端口字段的命令（如 0x41）
                     enabledCount++;
                     continue;
                 }
@@ -317,10 +324,15 @@ namespace WpfApp1
 
         private void SetPollingUiState(bool polling)
         {
+            _pollingActive = polling;
             StartPollButton.IsEnabled = !polling;
             StopPollButton.IsEnabled = polling;
             PollStatusText.Text = polling ? "轮询中…" : string.Empty;
             PollStatusText.Foreground = polling ? Brushes.Green : Gray;
+
+            // 让「设备信息」的「更新」跟着轮询一起禁用：两边共用一把事务锁，
+            // 一次更新要连着读六条命令，插进轮询里会把串口占住十几秒甚至更久。
+            UpdateDeviceInfoUi();
         }
 
         private void OnPollRequestSent(PollRequest request)

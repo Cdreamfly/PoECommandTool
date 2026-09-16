@@ -75,9 +75,14 @@ namespace WpfApp1.Serial
                 }
 
                 PollRequest request = step.Request;
+
+                // 取事务锁：拿到之后，「发送 + 等响应」整对不会被另一个查询插进来
+                // （手动信息面板的「更新」按钮就是那个「另一个查询」）。
+                // 注意这里**不能**用 ConfigureAwait(false)——见本文件开头的说明。
+                SerialTransaction transaction;
                 try
                 {
-                    await _session.SendAsync(options.For(request.Frame), cancellationToken);
+                    transaction = await _session.BeginTransactionAsync(cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -86,42 +91,60 @@ namespace WpfApp1.Serial
                 catch (Exception ex)
                 {
                     RaiseNotice(scheduler.OnAttemptFailed(_clock()));
-                    RaiseRequestFailed(request, "发送失败：" + ex.Message);
+                    RaiseRequestFailed(request, "未发出：" + ex.Message);
                     continue;
                 }
 
-                RaiseRequestSent(request);
-
-                try
+                using (transaction)
                 {
-                    FrameEvent frameEvent = await _session.WaitForFrameAsync(
-                        request.CommandId,
-                        request.Sequence,
-                        TimeSpan.FromMilliseconds(plan.ResponseTimeoutMs),
-                        cancellationToken);
-
-                    scheduler.OnResponse(_clock());
-                    RaiseResponseMatched(request, frameEvent);
-
-                    if (!frameEvent.IsParsed)
+                    try
                     {
-                        RaiseNotice(string.Format("0x{0:X2} 的响应解析失败：{1}",
-                            request.CommandId, frameEvent.ParseError));
+                        await _session.SendAsync(options.For(request.Frame), cancellationToken);
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch (TimeoutException)
-                {
-                    RaiseNotice(scheduler.OnAttemptFailed(_clock()));
-                    RaiseRequestFailed(request, "等待响应超时");
-                }
-                catch (Exception ex)
-                {
-                    RaiseNotice(scheduler.OnAttemptFailed(_clock()));
-                    RaiseRequestFailed(request, ex.Message);
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        RaiseNotice(scheduler.OnAttemptFailed(_clock()));
+                        RaiseRequestFailed(request, "发送失败：" + ex.Message);
+                        continue;
+                    }
+
+                    RaiseRequestSent(request);
+
+                    try
+                    {
+                        FrameEvent frameEvent = await _session.WaitForFrameAsync(
+                            request.CommandId,
+                            request.Sequence,
+                            TimeSpan.FromMilliseconds(plan.ResponseTimeoutMs),
+                            cancellationToken);
+
+                        scheduler.OnResponse(_clock());
+                        RaiseResponseMatched(request, frameEvent);
+
+                        if (!frameEvent.IsParsed)
+                        {
+                            RaiseNotice(string.Format("0x{0:X2} 的响应解析失败：{1}",
+                                request.CommandId, frameEvent.ParseError));
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (TimeoutException)
+                    {
+                        RaiseNotice(scheduler.OnAttemptFailed(_clock()));
+                        RaiseRequestFailed(request, "等待响应超时");
+                    }
+                    catch (Exception ex)
+                    {
+                        RaiseNotice(scheduler.OnAttemptFailed(_clock()));
+                        RaiseRequestFailed(request, ex.Message);
+                    }
                 }
             }
         }

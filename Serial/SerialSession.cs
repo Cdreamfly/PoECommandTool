@@ -24,6 +24,33 @@ namespace WpfApp1.Serial
         }
     }
 
+    /// <summary>
+    /// 一次「发送 + 等响应」事务的持有凭证：用完 <see cref="Dispose"/> 即放锁。
+    ///
+    /// 为什么要这个：<see cref="SerialSession"/> 里的 _writeLock 只保证**字节**不交错，
+    /// 挡不住两条并发的查询在**事务**层交错——A 的响应可能落进 B 的等待窗口。
+    /// 响应配对（命令号 + 序列号）能挡住大部分误配，但那是「碰巧对」不是「设计对」，
+    /// 尤其 0xC0 系命令只按命令号配对（见 IsSequenceCorrelatable）。
+    /// </summary>
+    public sealed class SerialTransaction : IDisposable
+    {
+        private SemaphoreSlim _gate;
+
+        internal SerialTransaction(SemaphoreSlim gate)
+        {
+            _gate = gate;
+        }
+
+        public void Dispose()
+        {
+            // 幂等：重复 Dispose 不能多放一次，否则信号量会被撑开、互斥失效。
+            // 用 Exchange 而不是「读-判-写」，因为这是公开类型，无法假定只有一个线程会调它。
+            SemaphoreSlim gate = Interlocked.Exchange(ref _gate, null);
+            if (gate != null)
+                gate.Release();
+        }
+    }
+
     /// <summary>从设备输出里提取到的一帧，附带解析结果（或解析失败原因）。</summary>
     public sealed class FrameEvent
     {
@@ -89,6 +116,7 @@ namespace WpfApp1.Serial
         private readonly LineAssembler _assembler = new LineAssembler();
         private readonly RawFrameScanner _scanner = new RawFrameScanner();
         private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _transactionLock = new SemaphoreSlim(1, 1);
         private readonly object _sync = new object();
         private readonly object _assemblerSync = new object();
         private readonly List<Waiter> _waiters = new List<Waiter>();
@@ -309,6 +337,20 @@ namespace WpfApp1.Serial
         }
 
         /// <summary>
+        /// 取事务锁：拿到之后，直到 <see cref="SerialTransaction.Dispose"/> 为止，
+        /// 本条链路上的**发送与等待**不会被另一个事务插进来。
+        ///
+        /// 调用方必须把「发送 + 等响应」整对包在 using 里，而不是只包发送：
+        /// 只包发送等于没包——真正要防的是响应落进别人的等待窗口。
+        /// **不要**在这段持锁区间里再调用本会话的发送（会自己等自己，死锁）。
+        /// </summary>
+        public async Task<SerialTransaction> BeginTransactionAsync(CancellationToken cancellationToken)
+        {
+            await _transactionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new SerialTransaction(_transactionLock);
+        }
+
+        /// <summary>
         /// 等一帧与指定命令 / 序列号匹配的响应。
         /// 超时抛 <see cref="TimeoutException"/>，取消抛 <see cref="OperationCanceledException"/>（两者可区分）。
         /// </summary>
@@ -377,6 +419,7 @@ namespace WpfApp1.Serial
             }
 
             _writeLock.Dispose();
+            _transactionLock.Dispose();
             _transport.Dispose();
         }
 
