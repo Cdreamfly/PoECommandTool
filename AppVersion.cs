@@ -10,9 +10,9 @@ namespace WpfApp1
     public static class AppVersion
     {
         /// <summary>版本号本体（三段式）。</summary>
-        public const string Number = "1.1.0";
+        public const string Number = "1.2.0";
 
-        /// <summary>带 v 前缀的显示形式，例如 "v1.1.0"。</summary>
+        /// <summary>带 v 前缀的显示形式，例如 "v1.2.0"。</summary>
         public static string Display
         {
             get { return "v" + Number; }
@@ -24,7 +24,7 @@ namespace WpfApp1
             get { return "RTL8239 PoE Command Tool " + Display; }
         }
 
-        /// <summary>关于框里显示的形式，例如 "VER 1.1.0"。</summary>
+        /// <summary>关于框里显示的形式，例如 "VER 1.2.0"。</summary>
         public static string Full
         {
             get { return "VER " + Number; }
