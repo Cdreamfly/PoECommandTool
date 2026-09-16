@@ -167,7 +167,9 @@ namespace WpfApp1
             }
             catch (Exception ex)
             {
-                AppendLog("打开串口失败：" + ex.Message);
+                // 开关两个分支共用：Close() 在旧读循环没能按时退出时会抛（拒绝信号），
+                // 所以这里不能写死「打开失败」。
+                AppendLog("串口操作失败：" + ex.Message);
                 UpdateSerialUi();
             }
         }

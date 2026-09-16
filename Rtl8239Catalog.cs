@@ -80,6 +80,20 @@ namespace WpfApp1
             return hex ? Convert.ToInt64(s, 16) : long.Parse(s);
         }
 
+        /// <summary>
+        /// 解析一个最终要放进单个字节的数值（序列号等）。越界抛 <see cref="FormatException"/>
+        /// 而不是静默截断——被截断的序列号（300 → 0x2C）会让设备的回包永远对不上请求，
+        /// 表现成轮询幽灵超时，而现场看不出是输入的问题。
+        /// </summary>
+        public static byte ParseByte(string text, string label)
+        {
+            long value = ParseNumber(text);
+            if (value < 0 || value > MaxFor(FieldKind.Byte))
+                throw new FormatException(string.Format("{0}须在 0x00-0xFF 范围内，当前是 {1}。", label, value));
+
+            return (byte)value;
+        }
+
         /// <summary>某类字段能表示的最大值（含）。</summary>
         public static long MaxFor(FieldKind kind)
         {

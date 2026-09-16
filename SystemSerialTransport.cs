@@ -79,12 +79,14 @@ namespace WpfApp1.Serial
             }
         }
 
-        /// <summary>读一段数据；读超时返回 0（不是错误）。</summary>
+        /// <summary>
+        /// 读一段数据；读超时返回 0（不是错误），端口未打开返回 -1（终止条件，见 <see cref="ISerialTransport.Read"/>）。
+        /// </summary>
         public int Read(byte[] buffer, int offset, int count)
         {
             SerialPort port = _port;
             if (port == null || !port.IsOpen)
-                return 0;
+                return -1;      // 已关闭 ≠ 超时：这里必须让读循环停下来，返回 0 会变成满速空转
 
             try
             {

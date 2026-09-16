@@ -72,6 +72,12 @@ namespace WpfApp1.Serial
         /// <summary>记住最近发出去的几帧，用来识别「设备把自己的请求原样回送」。</summary>
         private const int RecentSentCount = 4;
 
+        /// <summary>
+        /// 关串口时等旧读循环退出的上限。超时说明驱动卡住，此时宁可拒绝重开，
+        /// 也不能让两条读循环去抢同一个端口——那会让每个字节被劈成两半。
+        /// </summary>
+        private const int ReadLoopJoinTimeoutMs = 1000;
+
         private sealed class Waiter
         {
             public byte CommandId;
@@ -157,6 +163,8 @@ namespace WpfApp1.Serial
 
             // 读故障之后 _isOpen 会被置 false，但取消源还留着。这里先统一收尾，
             // 否则反复「拔线—重开」会每次泄漏一个 CancellationTokenSource（内含内核句柄）。
+            // Close() 会**等旧读循环真正退出**再返回，所以下面那句 _transport.Open 不会
+            // 在旧循环还没死透时就重新打开端口。
             if (_readCts != null)
                 Close();
 
@@ -175,10 +183,14 @@ namespace WpfApp1.Serial
                 _recentSentFrames.Clear();
             }
 
-            _readCts = new CancellationTokenSource();
-            CancellationToken token = _readCts.Token;
+            // 令牌由循环自己捕获（作为参数传进去），循环体不再去读 _readCts 字段。
+            // 否则「关—开」挨得很近时，旧循环会在循环顶部读到**新一代**的、还没取消的
+            // 取消源，于是永不退出——两条循环抢同一个端口，字节被劈成两半。
+            CancellationTokenSource cts = new CancellationTokenSource();
+            CancellationToken token = cts.Token;
+            _readCts = cts;
             ReadLoopTask = Task.Factory.StartNew(
-                ReadLoop, token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                delegate { ReadLoop(token); }, token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
         public void Close()
@@ -186,7 +198,38 @@ namespace WpfApp1.Serial
             if (!_isOpen && _readCts == null)
                 return;
 
+            // 即使 StopReadLoop 因为旧循环没能按时退出而抛（拒绝信号），
+            // 收尾也必须做完：否则在 WaitForFrameAsync 上等着的调用方会一直挂到自己的超时。
+            try
+            {
+                StopReadLoop();
+            }
+            finally
+            {
+                lock (_assemblerSync)
+                {
+                    _assembler.Reset();
+                    _scanner.Reset();
+                }
+                CancelPendingWaiters("串口已关闭。");
+            }
+        }
+
+        /// <summary>
+        /// 停掉读循环并关闭传输层，**等旧循环真正退出**才返回。
+        ///
+        /// 为什么要等：旧循环可能仍阻塞在 _transport.Read 里。不等它退出就重开串口的话，
+        /// 它会一直活着并和新循环抢同一个端口——每个字节被两条循环各读走一半，
+        /// 表现成半截行、重复的 FrameReceived、以及轮询的幽灵超时。
+        ///
+        /// 顺序也有讲究：先取消令牌，再关传输层。端口一关，阻塞中的 Read 立刻返回负数，
+        /// 循环在下一个检查点看到**自己那一代**的令牌已取消，就干净退出了。
+        /// </summary>
+        private void StopReadLoop()
+        {
             CancellationTokenSource cts = _readCts;
+            Task loop = ReadLoopTask;
+
             _readCts = null;
             _isOpen = false;
 
@@ -205,12 +248,25 @@ namespace WpfApp1.Serial
                 // 关闭时的异常没有意义（设备可能已经不在了），吞掉
             }
 
-            lock (_assemblerSync)
+            if (loop != null && !loop.IsCompleted)
             {
-                _assembler.Reset();
-                _scanner.Reset();
+                bool exited;
+                try
+                {
+                    exited = loop.Wait(ReadLoopJoinTimeoutMs);
+                }
+                catch (AggregateException)
+                {
+                    // 旧循环是异常结束的（异常细节已由 Fault 事件报过）。在这里 Wait 一下
+                    // 顺带观察掉它，免得变成 unobserved task exception。
+                    exited = true;
+                }
+
+                if (!exited)
+                    throw new InvalidOperationException(
+                        "上一个读循环在 " + ReadLoopJoinTimeoutMs + " 毫秒内没有退出（串口驱动可能卡住了）。" +
+                        "为避免两条读循环抢同一个端口导致收包错乱，本次操作已中止，请重试或重新插拔设备。");
             }
-            CancelPendingWaiters("串口已关闭。");
         }
 
         /// <summary>把请求写进串口。文本模式按模板拼装，裸帧模式直接写原始字节。</summary>
@@ -309,7 +365,17 @@ namespace WpfApp1.Serial
                 return;
 
             _disposed = true;
-            Close();
+
+            try
+            {
+                Close();
+            }
+            catch (Exception)
+            {
+                // Close() 在旧读循环没能按时退出时会抛（那是给 Open 用的拒绝信号）；
+                // Dispose 必须继续往下走，把底层句柄释放掉。
+            }
+
             _writeLock.Dispose();
             _transport.Dispose();
         }
@@ -371,15 +437,18 @@ namespace WpfApp1.Serial
         //  读循环
         // -----------------------------------------------------------------
 
-        private void ReadLoop()
+        /// <summary>
+        /// 读循环。令牌在 <see cref="Open"/> 里创建时就被捕获进来，循环体只认它自己这一代；
+        /// 绝不去读 _readCts 字段——那正是「关—开」后旧循环赖着不走的成因。
+        /// </summary>
+        private void ReadLoop(CancellationToken token)
         {
             var buffer = new byte[ReadBufferSize];
             int idleReads = 0;
 
             while (true)
             {
-                CancellationTokenSource cts = _readCts;
-                if (cts == null || cts.IsCancellationRequested)
+                if (token.IsCancellationRequested)
                     return;
 
                 int count;
@@ -389,7 +458,7 @@ namespace WpfApp1.Serial
                 }
                 catch (Exception ex)
                 {
-                    if (cts.IsCancellationRequested)
+                    if (token.IsCancellationRequested)
                         return;      // 我们自己关的串口，不算故障
 
                     _isOpen = false;
@@ -397,7 +466,19 @@ namespace WpfApp1.Serial
                     return;
                 }
 
-                if (count <= 0)
+                if (count < 0)
+                {
+                    // 传输层报告「端口已关闭」。这里**绝不能 continue**：端口关闭时的读取是
+                    // 立刻返回的（不走超时），继续重试就是满核空转——那个 100% CPU 的来源。
+                    if (token.IsCancellationRequested)
+                        return;      // 我们自己关的，正常收尾
+
+                    _isOpen = false;
+                    RaiseFault(SerialFaultKind.DeviceRemoved, "串口已关闭（设备可能已断开）。", null);
+                    return;
+                }
+
+                if (count == 0)
                 {
                     idleReads++;
                     // 设备最后一行可能没有换行符：连续空闲之后把残行也吐出去

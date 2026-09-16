@@ -173,7 +173,8 @@ namespace WpfApp1
 
             try
             {
-                byte seq = (byte)Rtl8239Catalog.ParseNumber(SeqText.Text);
+                // 序列号会被塞进帧的 Byte1，越界必须在这里拦下（300 → 0x2C 会让回包永远对不上）
+                byte seq = Rtl8239Catalog.ParseByte(SeqText.Text, "序列号");
 
                 var ports = new List<long>();
                 bool hasPort = _current.Fields.Any(f => f.Kind == FieldKind.Port);
@@ -306,10 +307,8 @@ namespace WpfApp1
 
         private static byte ParseExpectationByte(string text, string label)
         {
-            long value = Rtl8239Catalog.ParseNumber(text);
-            if (value < 0 || value > 0xFF)
-                throw new FormatException($"{label}须在 0x00-0xFF 范围内。");
-            return (byte)value;
+            // 与序列号走同一套边界判断，避免这里成为第二份会各自漂移的副本
+            return Rtl8239Catalog.ParseByte(text, label);
         }
 
         private static byte[] ParseHexBytes(string s)
@@ -434,7 +433,7 @@ namespace WpfApp1
                 if (string.IsNullOrEmpty(_downloadFilePath))
                     throw new InvalidOperationException("请先选择固件文件。");
 
-                byte seq = (byte)Rtl8239Catalog.ParseNumber(DlSeqText.Text);
+                byte seq = Rtl8239Catalog.ParseByte(DlSeqText.Text, "下载序列号");
                 DownloadMode mode = DownloadTypeApp.IsChecked == true ? DownloadMode.App : DownloadMode.Firmware;
 
                 // 先按协议上限检查文件尺寸，再读入内存：ReadAllBytes 对任意大小的文件都没有上限，
