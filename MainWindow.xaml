@@ -270,7 +270,7 @@
                             <WrapPanel>
                                 <Button x:Name="DeviceInfoUpdateButton" Content="更新" Width="72" Height="26"
                                         Click="DeviceInfoUpdate_Click"
-                                        ToolTip="读取设备身份、配置版本、芯片类型与地址、全局参数、复位原因。读 0x47 时不会清除设备上的复位记录。轮询进行中时不可用（避免与轮询抢串口）。"/>
+                                        ToolTip="读取设备身份、配置版本、芯片类型与地址、全局参数、复位原因。读 0x47 时不会清除设备上的复位记录。轮询进行中时不可用；读取过程中这颗按钮会变成「取消」。"/>
                                 <TextBlock x:Name="DeviceInfoStatusText" VerticalAlignment="Center"
                                            Margin="12,0,0,0" Foreground="#888888" Text="尚未读取"/>
                             </WrapPanel>

@@ -30,12 +30,6 @@ namespace WpfApp1.Serial
         public string Error { get; set; }
         public List<DeviceInfoField> Fields { get; set; }
 
-        /// <summary>
-        /// 解析出来的原始结果对象（<see cref="Rtl8239ResponseParser"/> 的某个结构体）。
-        /// 只用来在组之间传递事实（例如「有几颗芯片」），不参与显示。
-        /// </summary>
-        public object Parsed { get; set; }
-
         public DeviceInfoEntry()
         {
             Fields = new List<DeviceInfoField>();
@@ -89,6 +83,9 @@ namespace WpfApp1.Serial
         /// <summary>0x47 的清除标志：固定 0x00 = 读后**不**清除。</summary>
         private const long ResetReasonClearFlag = 0x00;
 
+        /// <summary>0x4C 的命令号，用来把它从第一趟读取里摘出来单独处理。</summary>
+        private const byte AddressCommandId = 0x4C;
+
         /// <summary>0x47 里表示「该芯片访问正常」的半字节，正常的不逐颗列出来，免得 12 行噪音盖住异常项。</summary>
         private const byte ChipAccessNormalNibble = 0x0F;
 
@@ -97,46 +94,67 @@ namespace WpfApp1.Serial
 
         private sealed class InfoCommand
         {
-            public string Key;          // 目录里的键
-            public byte CommandId;      // 回包 Byte0，用于请求-响应配对
+            public string Key;
             public string Title;
+
+            /// <summary>回包 Byte0，用于请求-响应配对。</summary>
+            public byte CommandId;
+
+            /// <summary>0xC0 系的子命令（回包 Byte1）；其它命令为 0，表示「无子命令」。</summary>
+            public byte SubCommand;
         }
 
-        /// <summary>要读的命令，顺序即显示顺序。</summary>
-        private static readonly InfoCommand[] Commands =
-        {
-            new InfoCommand { Key = "0x40",    CommandId = 0x40, Title = "设备身份" },
-            new InfoCommand { Key = "0xC0-04", CommandId = 0xC0, Title = "配置版本" },
-            new InfoCommand { Key = "0x50",    CommandId = 0x50, Title = "芯片类型" },
-            new InfoCommand { Key = "0x4C",    CommandId = 0x4C, Title = "芯片地址" },
-            new InfoCommand { Key = "0x4A",    CommandId = 0x4A, Title = "全局参数" },
-            new InfoCommand { Key = "0x47",    CommandId = 0x47, Title = "复位原因" },
-        };
-
         /// <summary>
-        /// 本面板是否接管了这条命令。轮询列表要用它排除——同一条命令出现在两个列表里、
-        /// 各自刷新、各自显示，屏幕上就会有两份时机不同的「同一个值」。
+        /// 要读的命令，顺序即**显示**顺序。
         ///
-        /// 直接扫 <see cref="Commands"/>，不另抄一份键名清单：两份手维护的同一事实早晚会漂移，
-        /// 而漂移的后果正好就是这里要防的那件事。
+        /// 身份信息（命令号、子命令）全部从 <see cref="CommandOwnership"/> 的键名推导，
+        /// 不另写一份——两份手工维护的同一事实早晚会漂移，而漂移的后果是
+        /// 「用一条命令造的帧、等另一条命令的回包」，表现成必然超时。
+        ///
+        /// 注意这个数组**不再**兼任执行顺序：0x4C 要读几块取决于 0x50，见 <see cref="ReadAllAsync"/>。
         /// </summary>
+        private static readonly InfoCommand[] Commands = BuildCommands();
+
+        private static InfoCommand[] BuildCommands()
+        {
+            CommandOwner[] owners = CommandOwnership.DeviceInfoPanel;
+            var commands = new InfoCommand[owners.Length];
+
+            for (int i = 0; i < owners.Length; i++)
+            {
+                string key = owners[i].Key;
+                int dash = key.IndexOf('-');
+
+                var command = new InfoCommand();
+                command.Key = key;
+                command.Title = owners[i].Title;
+                command.CommandId = (byte)Rtl8239Catalog.ParseNumber(dash < 0 ? key : key.Substring(0, dash));
+                command.SubCommand = dash < 0 ? (byte)0 : (byte)Rtl8239Catalog.ParseNumber(key.Substring(dash + 1));
+                commands[i] = command;
+            }
+
+            return commands;
+        }
+
+        /// <summary>把命令键名交给调用方（轮询列表按它排除这些命令）。</summary>
         public static bool IsCovered(string key)
         {
-            for (int i = 0; i < Commands.Length; i++)
-                if (string.Equals(Commands[i].Key, key, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            return false;
+            return CommandOwnership.OwnedByDeviceInfoPanel(key);
         }
 
         private readonly SerialSession _session;
+        private readonly SemaphoreSlim _readGate = new SemaphoreSlim(1, 1);
         private byte _sequence;
 
         /// <summary>
-        /// 进度回调：(已开始第几组, 总组数, 组名)。<paramref name="title"/> 为 null 表示全部读完。
+        /// 进度回调：(已开始第几组, 总组数, 组名)。
         ///
         /// ⚠️ **在哪个线程上触发是不保证的**：本类内部一路 ConfigureAwait(false)，
         /// 所以除了第一次（还在调用者的线程上），其余都在线程池线程上触发。
         /// 回调里要碰界面控件的话，必须自己封送到 UI 线程。
+        ///
+        /// 本类**不承诺**在返回前额外报一次「已完成」——调用方拿到的 Task 完成本身就是那个信号，
+        /// 别在这里再补一次（那会让最后写入的状态依赖两个线程的先后顺序）。
         /// </summary>
         public Action<int, int, string> Progress { get; set; }
 
@@ -150,46 +168,78 @@ namespace WpfApp1.Serial
         /// 依次读完全部命令。单条失败不中断整块——已经在手的其它结果照常返回，
         /// 「这条命令在设备上读不通」本身就是一个有用的诊断结论，不该被抹平成一句「读取失败」。
         /// 只有取消会中断整块（向上抛 <see cref="OperationCanceledException"/>）。
+        ///
+        /// 本方法不是可重入的（内部有个无锁的序列号计数器），所以自己用信号量守住单飞，
+        /// 而不是把这个约束留给调用方——约束是这里产生的，就该在这里兑现。
+        /// 并发调用会排队，不会出错。
         /// </summary>
         public async Task<DeviceInfoResult> ReadAllAsync(SendOptions options, int timeoutMs,
             CancellationToken cancellationToken)
         {
             if (options == null) throw new ArgumentNullException("options");
 
-            var entries = new List<DeviceInfoEntry>();
+            await _readGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await ReadAllCoreAsync(options, timeoutMs, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _readGate.Release();
+            }
+        }
 
-            // 0x4C 要读几块，取决于 0x50 报出来有几颗芯片——而 0x50 排在它前面，
-            // 所以边读边把事实带过去（见 ReadDeviceAddressesAsync 里那段说明）。
+        private async Task<DeviceInfoResult> ReadAllCoreAsync(SendOptions options, int timeoutMs,
+            CancellationToken cancellationToken)
+        {
+            // 结果先按显示位置落座，最后一趟扫的时候读取顺序就和显示顺序无关了
+            var slots = new DeviceInfoEntry[Commands.Length];
+
+            // 第一趟：除 0x4C 以外的全部命令。
+            //
+            // 0x4C 被摘出去，是因为它要读几块取决于 0x50 报出来的芯片占用情况。
+            // 这条依赖**不能**靠「它在数组里排在 0x50 后面」来维系：谁要是觉得
+            // 「按命令号排个序更整齐」，0x4C 就会静默地只读到第一块——而且那时的提示
+            // 还会把「还没跑」诊断成「跑失败了」。写成两趟，顺序就变不坏了。
+            int addressSlot = -1;
             int? chipCount = null;
 
             for (int i = 0; i < Commands.Length; i++)
             {
+                InfoCommand command = Commands[i];
+                if (command.CommandId == AddressCommandId)
+                {
+                    addressSlot = i;
+                    continue;
+                }
+
                 cancellationToken.ThrowIfCancellationRequested();
-                ReportProgress(i, Commands[i].Title);
+                ReportProgress(i, command.Title);
 
-                InfoCommand cmd = Commands[i];
-                DeviceInfoEntry entry;
+                SingleRead read = await ReadOneAsync(command, options, timeoutMs, cancellationToken)
+                    .ConfigureAwait(false);
 
-                if (cmd.CommandId == 0x50)
-                {
-                    entry = await ReadOneAsync(cmd, options, timeoutMs, cancellationToken).ConfigureAwait(false);
-                    if (entry.Ok && entry.Parsed is SystemChipTypeInfo)
-                        chipCount = ChipCountOf((SystemChipTypeInfo)entry.Parsed);
-                }
-                else if (cmd.CommandId == 0x4C)
-                {
-                    entry = await ReadDeviceAddressesAsync(cmd, options, timeoutMs, chipCount, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    entry = await ReadOneAsync(cmd, options, timeoutMs, cancellationToken).ConfigureAwait(false);
-                }
+                if (read.Parsed is SystemChipTypeInfo)
+                    chipCount = ChipCountOf((SystemChipTypeInfo)read.Parsed);
 
-                entries.Add(entry);
+                slots[i] = read.Entry;
             }
 
-            ReportProgress(Commands.Length, null);
+            // 第二趟：0x4C，用第一趟拿到的芯片数推算要读几块
+            if (addressSlot >= 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ReportProgress(addressSlot, Commands[addressSlot].Title);
+
+                slots[addressSlot] = await ReadDeviceAddressesAsync(
+                    Commands[addressSlot], options, timeoutMs, chipCount, cancellationToken).ConfigureAwait(false);
+            }
+
+            var entries = new List<DeviceInfoEntry>(Commands.Length);
+            for (int i = 0; i < slots.Length; i++)
+                if (slots[i] != null)
+                    entries.Add(slots[i]);
+
             return new DeviceInfoResult(entries);
         }
 
@@ -204,7 +254,14 @@ namespace WpfApp1.Serial
         //  单条命令
         // =================================================================
 
-        private async Task<DeviceInfoEntry> ReadOneAsync(InfoCommand cmd, SendOptions options,
+        /// <summary>一次单命令读取：给调用方看的条目，以及只在内部分发的原始结果对象。</summary>
+        private struct SingleRead
+        {
+            public DeviceInfoEntry Entry;
+            public object Parsed;
+        }
+
+        private async Task<SingleRead> ReadOneAsync(InfoCommand cmd, SendOptions options,
             int timeoutMs, CancellationToken cancellationToken)
         {
             long[] values = FieldValues(cmd.Key);
@@ -219,7 +276,7 @@ namespace WpfApp1.Serial
             if (cmd.CommandId == 0x47)
             {
                 if (values.Length != 1)
-                    return Failed(cmd, "0x47 的参数定义异常，为安全起见不发送"
+                    return Failure(cmd, "0x47 的参数定义异常，为安全起见不发送"
                         + "（清除标志必须显式为 0x00，否则会抹掉设备上的复位记录）");
 
                 values[0] = ResetReasonClearFlag;
@@ -229,9 +286,22 @@ namespace WpfApp1.Serial
                 .ConfigureAwait(false);
 
             if (!outcome.Ok)
-                return Failed(cmd, outcome.Error + EmptyResponseHint(cmd.CommandId, outcome.TimedOut));
+                return Failure(cmd, outcome.Error + EmptyResponseHint(cmd.CommandId, outcome.TimedOut));
 
-            return Succeeded(cmd, outcome.Parsed);
+            var read = new SingleRead();
+            read.Parsed = outcome.Parsed;
+            read.Entry = Succeeded(cmd, outcome.Parsed);
+            return read;
+        }
+
+        private static SingleRead Failure(InfoCommand cmd, string error)
+        {
+            var entry = new DeviceInfoEntry { CommandKey = cmd.Key, Title = cmd.Title, Ok = false, Error = error };
+            entry.Fields.Add(new DeviceInfoField(cmd.Title, AbsentPlaceholder));
+
+            var read = new SingleRead();
+            read.Entry = entry;
+            return read;
         }
 
         /// <summary>
@@ -264,6 +334,13 @@ namespace WpfApp1.Serial
             return blocks > MaxAddressIndex + 1 ? MaxAddressIndex + 1 : blocks;
         }
 
+        /// <summary>一块已读回的地址，连同**请求时用的索引**。</summary>
+        private struct AddressBlock
+        {
+            public int RequestedIndex;
+            public GlobalDeviceAddress Data;
+        }
+
         /// <summary>
         /// 0x4C 是索引式的：每个索引回 8 个芯片地址。
         ///
@@ -279,7 +356,7 @@ namespace WpfApp1.Serial
         private async Task<DeviceInfoEntry> ReadDeviceAddressesAsync(InfoCommand cmd, SendOptions options,
             int timeoutMs, int? chipCount, CancellationToken cancellationToken)
         {
-            var blocks = new List<GlobalDeviceAddress>();
+            var blocks = new List<AddressBlock>();
             string error = null;
 
             int blocksNeeded = BlockCountFor(chipCount);
@@ -303,12 +380,15 @@ namespace WpfApp1.Serial
                     continue;
                 }
 
-                var block = (GlobalDeviceAddress)outcome.Parsed;
+                var data = (GlobalDeviceAddress)outcome.Parsed;
 
                 // 与 0x50 报的数量对不上：跳过这一块，但继续看后面的
-                if (block.PresentCount == 0)
+                if (data.PresentCount == 0)
                     continue;
 
+                var block = new AddressBlock();
+                block.RequestedIndex = idx;
+                block.Data = data;
                 blocks.Add(block);
             }
 
@@ -350,6 +430,10 @@ namespace WpfApp1.Serial
                     FrameEvent frameEvent = await _session.WaitForFrameAsync(cmd.CommandId, sequence,
                         TimeSpan.FromMilliseconds(timeoutMs), cancellationToken).ConfigureAwait(false);
 
+                    string mismatch = DescribeSubCommandMismatch(cmd, frameEvent);
+                    if (mismatch != null)
+                        return new QueryOutcome { Ok = false, Error = mismatch };
+
                     if (!frameEvent.IsParsed)
                         return new QueryOutcome
                         {
@@ -372,6 +456,25 @@ namespace WpfApp1.Serial
             {
                 return new QueryOutcome { Ok = false, Error = ex.Message };
             }
+        }
+
+        /// <summary>
+        /// 0xC0 系的命令只按命令 ID 配对（<see cref="SerialSession.IsSequenceCorrelatable"/> 为 false），
+        /// 所以**任何** 0xC0 帧都能满足那个等待——手工帧的回包、上一次超时之后才到的回包，都可能被认领。
+        /// 这里按子命令再挡一道：宁可这一条明确失败，也不能把别人的数据当成自己的结果显示出来，
+        /// 那正是这块面板最不该犯的错。
+        /// </summary>
+        private static string DescribeSubCommandMismatch(InfoCommand cmd, FrameEvent frameEvent)
+        {
+            if (SerialSession.IsSequenceCorrelatable(cmd.CommandId))
+                return null;        // 别的命令已经按序列号配过对了
+
+            if (frameEvent.Raw == null || frameEvent.Raw.Length < 2 || frameEvent.Raw[1] == cmd.SubCommand)
+                return null;
+
+            return string.Format(CultureInfo.InvariantCulture,
+                "收到的不是 {0} 的响应（子命令 0x{1:X2}，期望 0x{2:X2}）——未采纳，免得把别人的数据当成自己的",
+                cmd.Key, frameEvent.Raw[1], cmd.SubCommand);
         }
 
         /// <summary>
@@ -437,30 +540,57 @@ namespace WpfApp1.Serial
         //  结果 → 可显示的「标签 : 值」
         // =================================================================
 
+        private static DeviceInfoEntry Succeeded(InfoCommand cmd, object parsed)
+        {
+            var entry = new DeviceInfoEntry { CommandKey = cmd.Key, Title = cmd.Title, Ok = true };
+            if (AppendParsed(entry, parsed))
+                return entry;
+
+            // 解析对象和命令对不上：**绝不报成功**。一条「看起来成功了、其实不是这条命令的结果」
+            // 比一条明确的失败有害得多——这块面板存在的意义就是让人相信屏幕上的东西。
+            return Failed(cmd, "响应类型与命令不符（得到 "
+                + (parsed == null ? "null" : parsed.GetType().Name) + "）");
+        }
+
+        private static bool AppendParsed(DeviceInfoEntry entry, object parsed)
+        {
+            if (parsed is GlobalStatus)
+            {
+                AppendGlobalStatus(entry, (GlobalStatus)parsed);
+                return true;
+            }
+
+            if (parsed is ConfigurationVersionInfo)
+            {
+                AppendConfigurationVersion(entry, (ConfigurationVersionInfo)parsed);
+                return true;
+            }
+
+            if (parsed is SystemChipTypeInfo)
+            {
+                AppendChipTypes(entry, (SystemChipTypeInfo)parsed);
+                return true;
+            }
+
+            if (parsed is GlobalParameters)
+            {
+                AppendGlobalParameters(entry, (GlobalParameters)parsed);
+                return true;
+            }
+
+            if (parsed is GlobalResetReason)
+            {
+                AppendResetReason(entry, (GlobalResetReason)parsed);
+                return true;
+            }
+
+            return false;
+        }
+
         private static DeviceInfoEntry Failed(InfoCommand cmd, string error)
         {
             var entry = new DeviceInfoEntry { CommandKey = cmd.Key, Title = cmd.Title, Ok = false, Error = error };
             entry.Fields.Add(new DeviceInfoField(cmd.Title, AbsentPlaceholder));
-            return entry;
-        }
-
-        private static DeviceInfoEntry Succeeded(InfoCommand cmd, object parsed)
-        {
-            var entry = new DeviceInfoEntry { CommandKey = cmd.Key, Title = cmd.Title, Ok = true, Parsed = parsed };
-
-            if (parsed is GlobalStatus)
-                AppendGlobalStatus(entry, (GlobalStatus)parsed);
-            else if (parsed is ConfigurationVersionInfo)
-                AppendConfigurationVersion(entry, (ConfigurationVersionInfo)parsed);
-            else if (parsed is SystemChipTypeInfo)
-                AppendChipTypes(entry, (SystemChipTypeInfo)parsed);
-            else if (parsed is GlobalParameters)
-                AppendGlobalParameters(entry, (GlobalParameters)parsed);
-            else if (parsed is GlobalResetReason)
-                AppendResetReason(entry, (GlobalResetReason)parsed);
-            else
-                entry.Fields.Add(new DeviceInfoField(cmd.Title, AbsentPlaceholder));
-
             return entry;
         }
 
@@ -515,10 +645,12 @@ namespace WpfApp1.Serial
         }
 
         /// <summary>
-        /// 0x4C：芯片的 I2C 地址。索引 idx 的那一块覆盖芯片 #(idx*8) 到 #(idx*8+7)，
-        /// 用全局芯片编号做标签，才能和 0x50 的「芯片 #N」对得上。
+        /// 0x4C：芯片的 I2C 地址。用全局芯片编号做标签，才能和 0x50 的「芯片 #N」对得上。
+        ///
+        /// 编号按**请求时用的索引**算，不用设备回显的 Idx：回显值不在 0..0x0B 时
+        /// （坏设备、或帧被张冠李戴），用它算出来的编号会离谱到没有意义。
         /// </summary>
-        private static void AppendChipAddresses(DeviceInfoEntry entry, List<GlobalDeviceAddress> blocks, int? chipCount)
+        private static void AppendChipAddresses(DeviceInfoEntry entry, List<AddressBlock> blocks, int? chipCount)
         {
             if (chipCount.HasValue && chipCount.Value == 0)
             {
@@ -529,8 +661,8 @@ namespace WpfApp1.Serial
             int present = 0;
             for (int b = 0; b < blocks.Count; b++)
             {
-                GlobalDeviceAddress block = blocks[b];
-                byte[] addresses = block.Addresses ?? new byte[0];
+                AddressBlock block = blocks[b];
+                byte[] addresses = block.Data.Addresses ?? new byte[0];
 
                 for (int i = 0; i < addresses.Length; i++)
                 {
@@ -540,7 +672,7 @@ namespace WpfApp1.Serial
                         present++;
 
                     entry.Fields.Add(new DeviceInfoField(
-                        "芯片 #" + Number(block.Idx * AddressesPerBlock + i),
+                        "芯片 #" + Number(block.RequestedIndex * AddressesPerBlock + i),
                         hasChip ? Hex(address) : AbsentPlaceholder));
                 }
             }
@@ -563,7 +695,7 @@ namespace WpfApp1.Serial
 
             // 0x50 没读成，所以只读了第一块；第一块是满的说明后面可能还有芯片，
             // 而再往后问的那一次正好会撞上「空块的响应与请求逐字节相同」那个坑，所以不追问。
-            if (blocks.Count > 0 && blocks[blocks.Count - 1].PresentCount == AddressesPerBlock)
+            if (blocks.Count > 0 && blocks[blocks.Count - 1].Data.PresentCount == AddressesPerBlock)
                 entry.Fields.Add(new DeviceInfoField("注意", "0x50 没读成，只读了第一块且已满，后面可能还有芯片"));
         }
 

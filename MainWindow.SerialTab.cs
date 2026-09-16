@@ -321,17 +321,22 @@ namespace WpfApp1
                 string outgoing = DescribeOutgoing(frame);
                 SendRequest request = _serialOptions.For(frame);
 
-                // 手工帧也要走事务锁：它的响应同样可能落进别人（轮询 / 设备信息面板）的等待窗口。
-                // 尤其 0xC0 系命令只按命令 ID 配对——一条手工 0xC0 的回包会被设备信息面板的
-                // 0xC0-04 当成自己的结果，界面上就会凭空冒出一个「配置版本」，而且不报错。
-                // 代价是另一笔事务在跑时要排队，那也比静默显示错值强。
+                // 先记日志再取锁：取锁可能要等另一笔事务——一次设备信息更新要连着读六条命令，
+                // 读超时设得大时那是好几分钟。这期间界面上什么都不显示的话，
+                // 用户只会觉得按钮坏了；先出一行日志至少说明这次点击被收到了。
+                AppendLine("[发送] " + outgoing);
+
+                // 手工帧走事务锁，它的**写入**就不会插进别人（轮询 / 设备信息）的事务中间。
+                //
+                // 但这把锁保护的是写入，不是响应窗口：手工发送不等回包，所以理论上
+                // 一条手工 0xC0 的响应仍可能落进面板的 0xC0-04 等待里。
+                // 那一头由 DeviceInfoReader 按子命令复核兜住了——收到子命令对不上的帧
+                // 会明确报失败，而不是把它显示成「配置版本」。
                 using (SerialTransaction transaction =
                     await _session.BeginTransactionAsync(System.Threading.CancellationToken.None))
                 {
                     await _session.SendAsync(request, System.Threading.CancellationToken.None);
                 }
-
-                AppendLine("[发送] " + outgoing);
             }
             catch (Exception ex)
             {

@@ -23,7 +23,7 @@ namespace WpfApp1.Serial
     /// 轮询候选清单。
     ///
     /// 候选 = 目录里的「查询命令」且参数只有端口（0 个或 1 个），并排除「设备信息」面板
-    /// 接管的那些（见 <see cref="DeviceInfoReader.IsCovered"/>）。像 0x43（组索引）、
+    /// 接管的那些（见 <see cref="CommandOwnership"/>）。像 0x43（组索引）、
     /// 0x45（复位标志）、0x46（清除标志）、0x4B（Bank ID）这些需要端口之外的额外参数，
     /// 不进候选——否则会把「组索引 0」错当成「端口 0」发出去。
     /// </summary>
@@ -52,7 +52,8 @@ namespace WpfApp1.Serial
 
             // 身份/诊断类命令归「设备信息」面板管（点一次读一次），不在这里再开一个入口：
             // 同一条命令两个入口各自刷新，屏幕上会出现两份时机不同的「同一个值」。
-            if (DeviceInfoReader.IsCovered(cmd.Key))
+            // 归属表在 CommandOwnership 里——那是个中立位置，规划层不该反向依赖面板类。
+            if (CommandOwnership.OwnedByDeviceInfoPanel(cmd.Key))
                 return false;
 
             FieldDef[] fields = cmd.Fields;

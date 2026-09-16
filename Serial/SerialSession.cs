@@ -347,6 +347,17 @@ namespace WpfApp1.Serial
         public async Task<SerialTransaction> BeginTransactionAsync(CancellationToken cancellationToken)
         {
             await _transactionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            // 新事务不继承上一笔事务遗留的帧。_recentFrames 的本意只是容纳「回包比等待者先到」
+            // ——发送返回与注册等待之间没有先后保证，而那个窗口只存在于一次事务内部。
+            // 跨事务复用它的后果很具体：上一次**超时之后**才到的回包会留在缓存里，
+            // 下一次读取一注册等待就立刻认领它，于是每次显示的都是上一次的数据，
+            // 时间戳却是新的。0x4B / 0xC0 / 0xCA 只按命令 ID 配对，尤其容易命中。
+            lock (_sync)
+            {
+                _recentFrames.Clear();
+            }
+
             return new SerialTransaction(_transactionLock);
         }
 

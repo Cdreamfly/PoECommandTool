@@ -20,6 +20,10 @@ namespace WpfApp1
     /// </summary>
     public partial class MainWindow
     {
+        /// <summary>等读取退出的上限。与 SerialSession 等读循环退出用的 1000ms 是同一个思路：
+        /// 卡住的驱动写入是 Cancel 掐不断的，不能无限等下去。</summary>
+        private const int DeviceInfoStopTimeoutMs = 1500;
+
         private DeviceInfoReader _deviceInfoReader;
         private CancellationTokenSource _deviceInfoCts;
         private Task _deviceInfoTask;
@@ -36,8 +40,15 @@ namespace WpfApp1
         //  触发
         // =================================================================
 
+        /// <summary>读取中这颗按钮是「取消」，空闲时是「更新」。</summary>
         private async void DeviceInfoUpdate_Click(object sender, RoutedEventArgs e)
         {
+            if (_deviceInfoBusy)
+            {
+                CancelDeviceInfo();
+                return;
+            }
+
             await StartDeviceInfoRead();
         }
 
@@ -80,25 +91,15 @@ namespace WpfApp1
                     _serialOptions, DeviceInfoTimeoutMs(), _deviceInfoCts.Token);
 
                 RenderDeviceInfo(result);
-
-                bool allOk = result.OkCount == result.TotalCount;
-                DeviceInfoStatusText.Foreground = allOk ? Brushes.Green : Brushes.Firebrick;
-                DeviceInfoStatusText.Text = result.Summary + "　最后更新 "
-                    + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-
-                AppendLog("[工具] 设备信息：" + result.Summary);
-                LogDeviceInfoFailures(result);
+                ShowResult(result);
             }
             catch (OperationCanceledException)
             {
-                DeviceInfoStatusText.Foreground = Gray;
-                DeviceInfoStatusText.Text = "已取消";
+                ShowCancelled();
             }
             catch (Exception ex)
             {
-                DeviceInfoStatusText.Foreground = Brushes.Firebrick;
-                DeviceInfoStatusText.Text = "读取失败：" + ex.Message;
-                AppendLog("[工具] 设备信息读取失败：" + ex.Message);
+                ShowError(ex);
             }
             finally
             {
@@ -114,14 +115,18 @@ namespace WpfApp1
             }
         }
 
-        /// <summary>该等多久：跟轮询用同一个超时设置，用户调一处即可。</summary>
-        private int DeviceInfoTimeoutMs()
-        {
-            return (int)ParseLong(TimeoutBox.Text, 1500, 20, 60000);
-        }
+        // =================================================================
+        //  状态呈现
+        // =================================================================
 
-        private void LogDeviceInfoFailures(DeviceInfoResult result)
+        private void ShowResult(DeviceInfoResult result)
         {
+            bool allOk = result.OkCount == result.TotalCount;
+            DeviceInfoStatusText.Foreground = allOk ? Brushes.Green : Brushes.Firebrick;
+            DeviceInfoStatusText.Text = result.Summary + "　最后更新 "
+                + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
+            AppendLog("[工具] 设备信息：" + result.Summary);
             for (int i = 0; i < result.Entries.Count; i++)
             {
                 DeviceInfoEntry entry = result.Entries[i];
@@ -130,9 +135,24 @@ namespace WpfApp1
             }
         }
 
-        // =================================================================
-        //  进度与状态
-        // =================================================================
+        private void ShowCancelled()
+        {
+            DeviceInfoStatusText.Foreground = Gray;
+            DeviceInfoStatusText.Text = "已取消";
+        }
+
+        private void ShowError(Exception ex)
+        {
+            DeviceInfoStatusText.Foreground = Brushes.Firebrick;
+            DeviceInfoStatusText.Text = "读取失败：" + ex.Message;
+            AppendLog("[工具] 设备信息读取失败：" + ex.Message);
+        }
+
+        /// <summary>该等多久：跟轮询用同一个超时设置，用户调一处即可。</summary>
+        private int DeviceInfoTimeoutMs()
+        {
+            return (int)ParseLong(TimeoutBox.Text, 1500, 20, 60000);
+        }
 
         /// <summary>
         /// 进度在读取线程上回调，而读取线程**不是** UI 线程（<see cref="DeviceInfoReader"/>
@@ -145,20 +165,16 @@ namespace WpfApp1
 
             try
             {
-                // 这里必须用同步的 Invoke，**不能**图省事改成 BeginInvoke：
-                // 读取收尾时还会再报一次进度（title == null），而「本次更新：n/n 成功」是
-                // ReadAllAsync 返回之后才写上去的。Invoke 会等委托跑完才放行，这个先后
-                // 顺序才是「最终文案不会被打回『读取中』」的依据；换 BeginInvoke 就变成
-                // 两个都在队列里、谁先谁后看运气。
+                // 同步的 Invoke，不是 BeginInvoke：读取收尾后调用方还要写最终文案，
+                // 而 Invoke 会等委托跑完才放行——这个先后顺序就是「最终文案不会被打回
+                // 『读取中』」的依据。换 BeginInvoke 就变成两个都在队列里、谁先谁后看运气。
                 Dispatcher.Invoke(delegate
                 {
-                    // 已经收尾（_deviceInfoCts 被清空）就别再覆盖最终状态
-                    if (_deviceInfoCts == null)
-                        return;
+                    if (!_deviceInfoBusy)
+                        return;     // 已经收尾，别再覆盖最终状态
 
-                    DeviceInfoStatusText.Text = title == null
-                        ? "读取中…"
-                        : string.Format("读取中 {0}/{1}：{2}", done + 1, total, title);
+                    DeviceInfoStatusText.Text = string.Format(
+                        CultureInfo.InvariantCulture, "读取中 {0}/{1}：{2}", done + 1, total, title);
                 });
             }
             catch (Exception)
@@ -172,11 +188,23 @@ namespace WpfApp1
             if (DeviceInfoUpdateButton == null)
                 return;
 
+            if (_deviceInfoBusy)
+            {
+                // 读取中，同一颗按钮变「取消」。这是唯一的逃生口：一次更新要连读六条命令
+                // （0x4C 还要多读一块），超时设置大时能挂好几分钟——没有取消就只能关串口。
+                DeviceInfoUpdateButton.Content = "取消";
+                DeviceInfoUpdateButton.IsEnabled = true;
+                UpdatePollStartButton();
+                return;
+            }
+
             bool open = _session != null && _session.IsOpen;
 
+            DeviceInfoUpdateButton.Content = "更新";
             // 轮询期间禁用：两边共用一把事务锁，一次更新要连读六条命令，
             // 插进去会把串口独占十几秒（超时设置越大越久），轮询只能干等。
-            DeviceInfoUpdateButton.IsEnabled = open && !_deviceInfoBusy && !_pollingActive;
+            DeviceInfoUpdateButton.IsEnabled = open && !_pollingActive;
+            UpdatePollStartButton();
         }
 
         /// <summary>通知读取停下（不等待）。要先于关串口发出，否则它会在已关闭的端口上一直等到超时。</summary>
@@ -187,16 +215,18 @@ namespace WpfApp1
                 cts.Cancel();
         }
 
-        /// <summary>等正在跑的读取退干净（异常不外抛）。</summary>
+        /// <summary>等正在跑的读取退干净（异常不外抛），带超时。</summary>
         private async Task AwaitDeviceInfoStoppedAsync()
         {
             Task task = _deviceInfoTask;
             if (task == null)
                 return;
 
+            // 不无限等：Cancel 掐不断一个已经卡在驱动写入里的发送，
+            // 而这里是从关闭流程（UI 线程）调过来的，无限等就等于关不掉窗口。
             try
             {
-                await task;
+                await Task.WhenAny(task, Task.Delay(DeviceInfoStopTimeoutMs));
             }
             catch (Exception)
             {

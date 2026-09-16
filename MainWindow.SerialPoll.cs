@@ -100,7 +100,7 @@ namespace WpfApp1
                 CommandDef cmd = all[i];
                 if (cmd.Category != Rtl8239Catalog.CatQuery || PollPlan.IsPollable(cmd))
                     continue;
-                if (DeviceInfoReader.IsCovered(cmd.Key))
+                if (CommandOwnership.OwnedByDeviceInfoPanel(cmd.Key))
                     continue;
 
                 var disabled = new CheckBox
@@ -325,7 +325,7 @@ namespace WpfApp1
         private void SetPollingUiState(bool polling)
         {
             _pollingActive = polling;
-            StartPollButton.IsEnabled = !polling;
+            UpdatePollStartButton();
             StopPollButton.IsEnabled = polling;
             PollStatusText.Text = polling ? "轮询中…" : string.Empty;
             PollStatusText.Foreground = polling ? Brushes.Green : Gray;
@@ -333,6 +333,19 @@ namespace WpfApp1
             // 让「设备信息」的「更新」跟着轮询一起禁用：两边共用一把事务锁，
             // 一次更新要连着读六条命令，插进轮询里会把串口占住十几秒甚至更久。
             UpdateDeviceInfoUi();
+        }
+
+        /// <summary>
+        /// 「开始轮询」的可用性。互锁必须是**双向**的：只挡住「轮询时点更新」还不够，
+        /// 反过来的「读取时点开始轮询」会让轮询一上来就卡在事务锁上，
+        /// 界面停在「轮询中… 已发 0 / 成功 0」，既不报错也看不出在等什么。
+        /// </summary>
+        private void UpdatePollStartButton()
+        {
+            if (StartPollButton == null)
+                return;
+
+            StartPollButton.IsEnabled = !_pollingActive && !_deviceInfoBusy;
         }
 
         private void OnPollRequestSent(PollRequest request)
