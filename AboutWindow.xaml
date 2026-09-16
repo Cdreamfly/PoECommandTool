@@ -1,0 +1,47 @@
+<Window x:Class="WpfApp1.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="关于 RTL8239 PoE Command Tool"
+        Height="340" Width="460"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStyle="ToolWindow">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 图标 + 名称 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Image Source="POE.ico" Width="32" Height="32" VerticalAlignment="Center"/>
+            <TextBlock Text="RTL8239 PoE Command Tool" FontSize="18" FontWeight="Bold"
+                       VerticalAlignment="Center" Margin="12,0,0,0"/>
+        </StackPanel>
+
+        <!-- 版本 + 作者 -->
+        <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,6,0,0">
+            <!-- 版本号由代码填（AppVersion），这里不写死，免得和实际版本漂移 -->
+            <TextBlock x:Name="VersionText"
+                       HorizontalAlignment="Center" Foreground="#666666"/>
+            <TextBlock x:Name="AuthorText" Text="Author：CMF"
+                       HorizontalAlignment="Center" Foreground="#666666" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- 描述 -->
+        <TextBlock Grid.Row="2" TextWrapping="Wrap" LineHeight="20" Foreground="#333333"
+                   TextAlignment="Center" VerticalAlignment="Center" Margin="0,12,0,0"
+                   Text="RTL8239 PoE 控制器主机命令工具，提供命令帧组装、响应帧解析与固件下载帧生成。&#x0a;协议依据 Realtek《RTL8239 PoE Controller Host Command Guide》Rev.2.2。"/>
+
+        <!-- 版权 + 确定 -->
+        <StackPanel Grid.Row="3">
+            <TextBlock x:Name="CopyrightText" Text="Copyright © 2025"
+                       HorizontalAlignment="Center" Foreground="#888888"/>
+            <Button Content="确定" Width="80" Height="28" Margin="0,16,0,0"
+                    HorizontalAlignment="Center" Click="Ok_Click" IsDefault="True" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

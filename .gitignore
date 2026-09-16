@@ -1,0 +1,23 @@
+# 构建产物
+bin/
+obj/
+
+# 旧版 VS 的中间目录
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# VS 用户设置
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ClickOnce 发布密钥：仓库根目录的 WpfApp1_TemporaryKey.pfx 是**无密码**的发布密钥，
+# 绝不能入库。发布时它仍在磁盘上，只是不受版本控制。
+*.pfx
+
+# 审查期间生成的源码快照与报告产物
+.review-backup-*/

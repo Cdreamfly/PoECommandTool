@@ -1,0 +1,14 @@
+{
+  "status": "in_progress",
+  "project_type": "brownfield",
+  "current_section": "product",
+  "current_question": 3,
+  "completed_sections": [],
+  "answers": {
+    "project_name": "RTL8239 PoE Command Tool",
+    "project_description": "串口上位机调试工具：通过串口发送 RTL8239 主机命令、解析响应、下载固件并实时绘制 PoE 遥测曲线"
+  },
+  "files_created": [],
+  "started_at": "2026-09-14T00:00:00Z",
+  "last_updated": "2026-09-14T00:00:00Z"
+}

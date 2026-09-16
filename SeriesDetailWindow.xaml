@@ -1,0 +1,20 @@
+<Window x:Class="WpfApp1.SeriesDetailWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="曲线详情"
+        Height="440" Width="540"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False"
+        WindowStyle="ToolWindow">
+
+    <DockPanel Margin="10">
+        <Button DockPanel.Dock="Bottom" Content="关闭" Width="90" Height="28"
+                HorizontalAlignment="Right" Margin="0,10,0,0" Click="Close_Click"/>
+
+        <TextBox x:Name="DetailBox" IsReadOnly="True" FontFamily="Consolas" FontSize="13"
+                 TextWrapping="NoWrap" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 VerticalContentAlignment="Top"/>
+    </DockPanel>
+</Window>
