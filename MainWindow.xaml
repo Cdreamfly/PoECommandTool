@@ -227,6 +227,9 @@
                     <ComboBox x:Name="PortCombo" Width="110" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     <Button x:Name="RefreshPortsButton" Content="刷新" Width="56" Height="26" Margin="6,0,0,0"
                             VerticalAlignment="Center" Click="RefreshPorts_Click"/>
+                    <CheckBox x:Name="AutoReconnectCheck" Content="自动重连" IsChecked="True"
+                              VerticalAlignment="Center" Margin="10,0,0,0"
+                              ToolTip="拔线或链路出错导致串口关闭后，一旦同一个端口重新出现就自动打开并重读设备信息。默认开着；不想让它自己连就取消勾选。"/>
                     <TextBlock Text="波特率" VerticalAlignment="Center" Margin="16,0,0,0"/>
                     <ComboBox x:Name="BaudCombo" Width="90" Height="26" IsEditable="True" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     <TextBlock Text="数据位" VerticalAlignment="Center" Margin="16,0,0,0"/>

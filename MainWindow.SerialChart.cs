@@ -786,6 +786,9 @@ namespace WpfApp1
             {
                 StopPolling("串口链路出错，轮询已停止。");
                 UpdateSerialUi();
+
+                // 意外断开（拔线 / 链路出错）：如果这个端口再回来，自动重连
+                _reconnectWanted = true;
             }));
         }
 

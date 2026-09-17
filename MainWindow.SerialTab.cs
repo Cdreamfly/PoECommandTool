@@ -66,6 +66,7 @@ namespace WpfApp1
             _chartTimer.Tick += ChartTimer_Tick;
             _chartTimer.Start();
 
+            StartPortWatcher();
             Closing += SerialTab_Closing;
             UpdateSerialUi();
 
@@ -75,6 +76,7 @@ namespace WpfApp1
         private void BuildSerialOptionLists()
         {
             RefreshPortList();
+            _knownPorts = SafePortNames();
 
             var baudRates = new[] { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 };
             BaudCombo.ItemsSource = baudRates;
@@ -148,6 +150,186 @@ namespace WpfApp1
             }
         }
 
+        /// <summary>
+        /// 打开串口（按界面上的设置）。抽出来是为了让「自动重连」走同一条路径——
+        /// 重连要是自己另写一遍开串口流程，早晚会和这里的差异越拉越大。
+        /// </summary>
+        private async Task OpenSerialAsync()
+        {
+            _portSettings = ReadPortSettings();
+            ReadReceiveSettings();
+            _session.Open(_portSettings);
+
+            _lastOpenedPort = _portSettings.PortName;
+            _reconnectWanted = false;
+
+            AppendLog("已打开 " + _portSettings.Describe());
+            UpdateSerialUi();
+
+            // 刚连上先读一次设备信息：这不是轮询，只有一次往返，但能立刻暴露
+            // 「设备不认这些命令」这类问题，省得用户以为是按钮坏了。
+            await StartDeviceInfoRead();
+        }
+
+        // =================================================================
+        //  串口热插拔与自动重连
+        // =================================================================
+
+        /// <summary>上一次见到的串口列表，用来发现插拔。</summary>
+        private string[] _knownPorts = new string[0];
+
+        /// <summary>上一次成功打开的端口名；自动重连要认准同一个。</summary>
+        private string _lastOpenedPort;
+
+        /// <summary>链路意外断了，等着同一个端口重新出现。</summary>
+        private bool _reconnectWanted;
+
+        private DispatcherTimer _portWatchTimer;
+
+        private void StartPortWatcher()
+        {
+            _portWatchTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _portWatchTimer.Tick += PortWatch_Tick;
+            _portWatchTimer.Start();
+        }
+
+        /// <summary>
+        /// 每两秒看一次串口列表。
+        ///
+        /// 原先端口列表只在启动时枚举一次，之后要靠手点「刷新」——启动之后才插上的
+        /// USB 转串口根本不会出现。拔线之后的恢复也要手动两步（刷新 + 打开）。
+        /// </summary>
+        private async void PortWatch_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                string[] ports = SafePortNames();
+                if (!SamePorts(ports, _knownPorts))
+                {
+                    string[] added = Difference(ports, _knownPorts);
+                    string[] removed = Difference(_knownPorts, ports);
+                    _knownPorts = ports;
+
+                    RefreshPortList();      // 会尽量保住当前选择
+                    AppendLog("串口列表有变化：" + DescribePortDiff(added, removed));
+                }
+
+                await TryReconnectAsync(ports);
+            }
+            catch (Exception ex)
+            {
+                // 定时器的回调里不能往外抛
+                AppendLog("检测串口列表时出错：" + ex.Message);
+            }
+        }
+
+        private async Task TryReconnectAsync(string[] ports)
+        {
+            if (!_reconnectWanted || _session == null || _session.IsOpen)
+                return;
+
+            if (AutoReconnectCheck == null || AutoReconnectCheck.IsChecked != true)
+            {
+                _reconnectWanted = false;
+                return;
+            }
+
+            if (_lastOpenedPort == null || Array.IndexOf(ports, _lastOpenedPort) < 0)
+                return;     // 还没回来，继续等
+
+            _reconnectWanted = false;
+            AppendLog(string.Format("检测到 {0} 重新出现，正在自动重连…", _lastOpenedPort));
+
+            try
+            {
+                SelectPort(_lastOpenedPort);
+                await OpenSerialAsync();
+            }
+            catch (Exception ex)
+            {
+                AppendLog("自动重连失败：" + ex.Message + "（设备可能还没就绪，可手点「打开串口」重试）");
+            }
+        }
+
+        private void SelectPort(string portName)
+        {
+            if (PortCombo == null || portName == null)
+                return;
+
+            for (int i = 0; i < PortCombo.Items.Count; i++)
+            {
+                if (string.Equals(PortCombo.Items[i] as string, portName, StringComparison.OrdinalIgnoreCase))
+                {
+                    PortCombo.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            PortCombo.Text = portName;
+        }
+
+        private static string[] SafePortNames()
+        {
+            try
+            {
+                return new SystemSerialTransport().GetPortNames();
+            }
+            catch (Exception)
+            {
+                return new string[0];
+            }
+        }
+
+        private static bool SamePorts(string[] left, string[] right)
+        {
+            if (left == null || right == null)
+                return false;
+            if (left.Length != right.Length)
+                return false;
+
+            for (int i = 0; i < left.Length; i++)
+            {
+                bool found = false;
+                for (int j = 0; j < right.Length && !found; j++)
+                    found = string.Equals(left[i], right[j], StringComparison.OrdinalIgnoreCase);
+                if (!found)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static string[] Difference(string[] from, string[] minus)
+        {
+            var result = new List<string>();
+            if (from == null)
+                return result.ToArray();
+
+            for (int i = 0; i < from.Length; i++)
+            {
+                bool present = false;
+                if (minus != null)
+                    for (int j = 0; j < minus.Length && !present; j++)
+                        present = string.Equals(from[i], minus[j], StringComparison.OrdinalIgnoreCase);
+
+                if (!present)
+                    result.Add(from[i]);
+            }
+
+            return result.ToArray();
+        }
+
+        private static string DescribePortDiff(string[] added, string[] removed)
+        {
+            var parts = new List<string>();
+            if (added != null && added.Length > 0)
+                parts.Add("新增 " + string.Join("、", added));
+            if (removed != null && removed.Length > 0)
+                parts.Add("移除 " + string.Join("、", removed));
+
+            return parts.Count == 0 ? "（无）" : string.Join("；", parts.ToArray());
+        }
+
         private async void OpenClose_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -158,6 +340,7 @@ namespace WpfApp1
                     //    已经关掉的端口上一直等到超时。
                     CancelDeviceInfo();
                     CancelCommandSend();
+                    _reconnectWanted = false;   // 是用户主动关的，别自动连回来
 
                     // ② 状态同步改完再 await。这个处理器现在是 async 的，await 期间按钮还能点，
                     //    那时 IsOpen 若还是 true，下一次点击会被误判成「再关一次」而被吞掉。
@@ -173,15 +356,7 @@ namespace WpfApp1
                     return;
                 }
 
-                _portSettings = ReadPortSettings();
-                ReadReceiveSettings();
-                _session.Open(_portSettings);
-                AppendLog("已打开 " + _portSettings.Describe());
-                UpdateSerialUi();
-
-                // 刚连上先读一次设备信息：这不是轮询，只有一次往返，但能立刻暴露
-                // 「设备不认这些命令」这类问题，省得用户以为是按钮坏了。
-                await StartDeviceInfoRead();
+                await OpenSerialAsync();
             }
             catch (Exception ex)
             {
@@ -409,6 +584,8 @@ namespace WpfApp1
                 _logTimer.Stop();
             if (_chartTimer != null)
                 _chartTimer.Stop();
+            if (_portWatchTimer != null)
+                _portWatchTimer.Stop();
 
             // 先掐设备信息读取与命令组装页的发送，再停轮询：它们可能正持着事务锁在等回包，
             // 倒过来的话轮询取消后会卡在这把锁上多等一个超时。
