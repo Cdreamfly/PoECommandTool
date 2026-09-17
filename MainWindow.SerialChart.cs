@@ -26,7 +26,13 @@ namespace WpfApp1
         private readonly object _pendingSync = new object();
         private readonly Queue<string> _pendingLines = new Queue<string>();
         private readonly Queue<FrameEvent> _pendingFrames = new Queue<FrameEvent>();
-        private readonly List<string> _logLines = new List<string>();
+
+        /// <summary>通讯日志。只允许在 UI 线程上碰（见 <see cref="CommLog"/> 的线程约定）。</summary>
+        private readonly CommLog _log = new CommLog(MaxLogLines);
+
+        /// <summary>页内那个日志框已经显示到哪一行（绝对行号）。</summary>
+        private long _logShownUpTo;
+
         private readonly List<string> _loggedOnce = new List<string>();
         private readonly List<SeriesBuffer> _legend = new List<SeriesBuffer>();
         private readonly Dictionary<string, SeriesBuffer> _seriesByKey = new Dictionary<string, SeriesBuffer>();
@@ -39,8 +45,6 @@ namespace WpfApp1
         private DispatcherTimer _logTimer;
         private DispatcherTimer _chartTimer;
         private bool _hasNewSamples;
-        private int _logShownLines;      // 已经追加到界面上的日志行数
-        private bool _logCompacted;      // 日志被截断过，下次要整体重建
         private bool _chartMaximized;    // 曲线是否处于最大化
         private GridLength[] _savedRowHeights;
 
@@ -764,33 +768,49 @@ namespace WpfApp1
         }
 
         /// <summary>
-        /// 日志增量追加：平时只把新增的行 AppendText 上去，只有日志被截断过才整体重建。
-        /// 每来一行就把整串重新赋给 TextBox 会让轮询期间的界面明显卡顿。
+        /// 日志增量追加：平时只把新增的行 AppendText 上去，只有视图落后到被丢弃的部分之前
+        /// 才整体重建。每来一行就把整串重新赋给 TextBox 会让轮询期间的界面明显卡顿——
+        /// 满 1000 行之后旧写法正是每 100ms 重建一次全量。
+        ///
+        /// 独立日志窗口由 <c>SyncCommLogWindow</c> 走同一套增量，只是各记各的行号。
         /// </summary>
         private void FlushLogText()
         {
-            int total = _logLines.Count;
+            bool rebuild;
+            long from;
+            _log.GetView(_logShownUpTo, out rebuild, out from);
 
-            if (_logCompacted || _logShownLines > total || (_logShownLines == 0 && total > 0))
+            if (rebuild)
             {
-                SerialLogBox.Text = string.Join(Environment.NewLine, _logLines.ToArray());
-                _logShownLines = total;
-                _logCompacted = false;
+                SerialLogBox.Text = string.Join(Environment.NewLine, LogLines(from, _log.NextIndex));
             }
-            else if (_logShownLines < total)
+            else if (from < _log.NextIndex)
             {
                 var builder = new StringBuilder();
-                for (int i = _logShownLines; i < total; i++)
-                    builder.Append(Environment.NewLine).Append(_logLines[i]);
+                for (long i = from; i < _log.NextIndex; i++)
+                    builder.Append(Environment.NewLine).Append(_log.LineAt(i));
                 SerialLogBox.AppendText(builder.ToString());
-                _logShownLines = total;
             }
             else
             {
                 return;     // 没有新行
             }
 
+            _logShownUpTo = _log.NextIndex;
             SerialLogBox.ScrollToEnd();
+        }
+
+        /// <summary>取 [from, to) 这些行的内容。</summary>
+        private string[] LogLines(long from, long to)
+        {
+            var lines = new List<string>();
+            for (long i = from; i < to; i++)
+            {
+                string line = _log.LineAt(i);
+                if (line != null)
+                    lines.Add(line);
+            }
+            return lines.ToArray();
         }
 
         /// <summary>把一帧解析结果变成曲线采样。只允许在 UI 线程调用。</summary>
@@ -855,12 +875,8 @@ namespace WpfApp1
 
         private void AppendLogCore(string text)
         {
-            _logLines.Add(DateTime.Now.ToString("HH:mm:ss.fff") + "  " + text);
-            if (_logLines.Count > MaxLogLines)
-            {
-                _logLines.RemoveRange(0, _logLines.Count - MaxLogLines);
-                _logCompacted = true;      // 前面被截掉了，下一次刷日志要整体重建
-            }
+            // 时间戳是呈现层的事，不进 CommLog——那样纯逻辑层才能在 Linux 上按行断言
+            _log.Append(DateTime.Now.ToString("HH:mm:ss.fff") + "  " + text);
         }
     }
 }
