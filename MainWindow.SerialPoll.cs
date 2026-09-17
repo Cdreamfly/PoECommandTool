@@ -160,9 +160,19 @@ namespace WpfApp1
                 _runner.Notice += OnPollNotice;
 
                 SetPollingUiState(true);
-                AppendLog(string.Format("开始轮询：{0} 条命令，轮次间隔 {1} ms，命令间隔 {2} ms，超时 {3} ms，重试 {4} 次。",
+                // 把「一轮实际要多久」摆出来。间隔设置只是目标值：一轮要走完所有勾选的命令，
+                // 每条之间还要留命令间隔，所以条目一多，实际轮次就由命令间隔说了算，
+                // 那个「间隔(ms)」会静默失效。不说清楚的话，用户会把曲线的斜率误读成物理速率。
+                long roundMs = (long)CountEnabled(plan) * plan.InterCommandDelayMs;
+                string ceiling = roundMs > plan.IntervalMs
+                    ? string.Format("；一轮至少 {0:F1} 秒（{1} 条 × 命令间隔 {2} ms），"
+                        + "已超过间隔设置，此时间隔不生效",
+                        roundMs / 1000.0, CountEnabled(plan), plan.InterCommandDelayMs)
+                    : string.Empty;
+
+                AppendLog(string.Format("开始轮询：{0} 条命令，轮次间隔 {1} ms，命令间隔 {2} ms，超时 {3} ms，重试 {4} 次{5}。",
                     CountEnabled(plan), plan.IntervalMs, plan.InterCommandDelayMs,
-                    plan.ResponseTimeoutMs, plan.MaxRetries));
+                    plan.ResponseTimeoutMs, plan.MaxRetries, ceiling));
 
                 _pollTask = _runner.RunAsync(plan, _serialOptions, _pollCts.Token);
                 await _pollTask;

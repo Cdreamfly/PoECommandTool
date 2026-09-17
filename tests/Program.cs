@@ -87,6 +87,7 @@ namespace Rtl8239Verify
             await DeviceInfoIsolationTests();
             await DeviceInfoFormatTests();
             await DeviceInfoClearFlagTests();
+            await DeviceInfoDescribeTests();
             await DeviceInfoStaleFrameTests();
             await TransactLockTests();
             await DeviceInfoWithPollingTests();

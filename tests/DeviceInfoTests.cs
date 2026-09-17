@@ -631,5 +631,40 @@ namespace Rtl8239Verify
                 Check(matched >= 6, "轮询也照常收到响应（实际 " + matched + " 个）");
             }
         }
+        private static async Task DeviceInfoDescribeTests()
+        {
+            Console.WriteLine("DeviceInfo 复制全部用的纯文本");
+
+            var fake = InfoTransport();
+            _lastPopulatedChip = 2;
+            _addressBlocks = delegate(byte idx) { return new byte[] { 0x20, 0x22 }; };
+
+            DeviceInfoResult result = await ReadDeviceInfoAsync(fake, 1500, null);
+            _addressBlocks = null;
+
+            string text = DeviceInfoReader.Describe(result, "14:23:05");
+
+            Check(text.Contains("本次更新：6/6 成功"), "表头带成功计数");
+            Check(text.Contains("最后更新 14:23:05"), "表头带时间戳");
+            Check(text.Contains("0x40  设备身份"), "每条命令一段，带命令号与小标题");
+            Check(text.Contains("  设备 ID: RTL8239C  (0x0139)"), "字段缩进两格、标签与值用冒号分隔");
+            CheckEq(DeviceInfoReader.Describe(null, "x"), "", "没有结果时返回空串");
+
+            // 失败的那一组也要出现，并写明原因——复制出去的内容应当和屏幕上一致
+            var failedFake = new FakeSerialTransport();
+            failedFake.AutoReply = delegate(byte[] request)
+            {
+                return request[0] == 0x50 ? null : InfoReply(request);
+            };
+            _addressBlocks = delegate(byte idx) { return new byte[] { 0x20 }; };
+
+            DeviceInfoResult partial = await ReadDeviceInfoAsync(failedFake, 120, null);
+            _addressBlocks = null;
+
+            string partialText = DeviceInfoReader.Describe(partial, "14:24:00");
+            Check(partialText.Contains("0x50  芯片类型（读取失败）"), "失败的那组标出「读取失败」");
+            Check(partialText.Contains("  错误: 等待响应超时"), "并写明失败原因");
+            Check(partialText.Contains("本次更新：5/6 成功"), "计数如实反映");
+        }
     }
 }

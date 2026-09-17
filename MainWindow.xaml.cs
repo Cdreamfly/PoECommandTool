@@ -287,17 +287,92 @@ namespace WpfApp1
         {
             try
             {
-                byte[] frame = ParseHexBytes(RespInput.Text);
-                if (frame.Length < Rtl8239ResponseParser.LoaderAckLength)
+                byte[] data = ParseHexBytes(RespInput.Text);
+                if (data.Length < Rtl8239ResponseParser.LoaderAckLength)
                     throw new Exception("响应帧至少 4 字节。");
 
-                object result = Rtl8239ResponseParser.Parse(frame, SelectedByteOrder(RespByteOrderCombo));
-                RespOutput.Text = CheckFrameExpectations(frame) + FormatObject(result);
+                List<byte[]> frames = SplitFrames(data);
+
+                var sb = new StringBuilder();
+                if (frames.Count > 1)
+                    sb.AppendLine(string.Format("—— 认出 {0} 帧（共 {1} 字节）——", frames.Count, data.Length))
+                      .AppendLine();
+
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    byte[] frame = frames[i];
+                    if (frames.Count > 1)
+                        sb.AppendLine(string.Format("【第 {0} 帧】{1}", i + 1, Rtl8239CommandBuilder.ToHex(frame)));
+
+                    sb.Append(CheckFrameExpectations(frame));
+
+                    try
+                    {
+                        sb.Append(FormatObject(Rtl8239ResponseParser.Parse(frame,
+                            SelectedByteOrder(RespByteOrderCombo))));
+                    }
+                    catch (Exception ex)
+                    {
+                        sb.AppendLine("解析失败：" + ex.Message);
+                    }
+
+                    if (frames.Count > 1)
+                        sb.AppendLine();
+                }
+
+                RespOutput.Text = sb.ToString();
             }
             catch (Exception ex)
             {
                 RespOutput.Text = "解析失败：" + ex.Message;
             }
+        }
+
+        /// <summary>
+        /// 把粘进来的一串字节切成若干帧。
+        ///
+        /// 原先只取前 12 字节、**后面的静默丢掉**——粘了三帧进来只解一帧，而且不报错、
+        /// 不提示。用户以为解全了，比报错更糟。
+        ///
+        /// 切法：优先按 12 字节 App 帧（校验和说得通才算），否则按 4 字节 Loader 应答。
+        /// 两种都不是的情况（校验和对不上、长度又不整）留在末尾并如实说明，不硬猜。
+        /// </summary>
+        private static List<byte[]> SplitFrames(byte[] data)
+        {
+            var frames = new List<byte[]>();
+
+            int offset = 0;
+            while (offset < data.Length)
+            {
+                int remaining = data.Length - offset;
+
+                if (remaining >= Rtl8239CommandBuilder.AppFrameLength)
+                {
+                    var candidate = new byte[Rtl8239CommandBuilder.AppFrameLength];
+                    Array.Copy(data, offset, candidate, 0, candidate.Length);
+
+                    // 校验和说得通就按 App 帧切；说不通就退到 4 字节，让调用方去报解析失败
+                    if (Rtl8239CommandBuilder.IsChecksumValid(candidate, candidate.Length))
+                    {
+                        frames.Add(candidate);
+                        offset += candidate.Length;
+                        continue;
+                    }
+                }
+
+                if (remaining >= Rtl8239ResponseParser.LoaderAckLength)
+                {
+                    var ack = new byte[Rtl8239ResponseParser.LoaderAckLength];
+                    Array.Copy(data, offset, ack, 0, ack.Length);
+                    frames.Add(ack);
+                    offset += ack.Length;
+                    continue;
+                }
+
+                break;      // 剩下不足 4 字节，凑不成帧
+            }
+
+            return frames;
         }
 
         // 可选的一致性核对：界面上填了「期望序列号 / 期望端口」时才检查响应帧里回显的值，

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -133,6 +134,44 @@ namespace WpfApp1.Serial
         public static bool IsCovered(string key)
         {
             return CommandOwnership.OwnedByDeviceInfoPanel(key);
+        }
+
+        /// <summary>
+        /// 把一次读取的结果摊成纯文本，供「复制全部」贴进工单 / 邮件。
+        ///
+        /// 放在这里而不是界面层，是因为它是纯字符串拼装、能断言；界面那层只负责塞进剪贴板。
+        /// 格式与屏幕上一致：一命令一段，字段一行一个，失败的那段照样列出来并写明原因。
+        /// </summary>
+        public static string Describe(DeviceInfoResult result, string timestamp)
+        {
+            if (result == null)
+                return string.Empty;
+
+            var text = new StringBuilder();
+            text.AppendLine("设备信息　" + result.Summary);
+            if (!string.IsNullOrEmpty(timestamp))
+                text.AppendLine("最后更新 " + timestamp);
+            text.AppendLine();
+
+            for (int i = 0; i < result.Entries.Count; i++)
+            {
+                DeviceInfoEntry entry = result.Entries[i];
+                text.Append(entry.CommandKey).Append("  ").Append(entry.Title);
+                if (!entry.Ok)
+                    text.Append("（读取失败）");
+                text.AppendLine();
+
+                for (int f = 0; f < entry.Fields.Count; f++)
+                    text.Append("  ").Append(entry.Fields[f].Label)
+                        .Append(": ").Append(entry.Fields[f].Value).AppendLine();
+
+                if (!entry.Ok && !string.IsNullOrEmpty(entry.Error))
+                    text.Append("  错误: ").AppendLine(entry.Error);
+
+                text.AppendLine();
+            }
+
+            return text.ToString().TrimEnd();
         }
 
         private readonly SerialSession _session;

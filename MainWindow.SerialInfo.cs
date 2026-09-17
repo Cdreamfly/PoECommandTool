@@ -36,6 +36,27 @@ namespace WpfApp1
             UpdateDeviceInfoUi();
         }
 
+        /// <summary>上一次读到的设备信息，供「复制全部」用——屏幕上的控件每次刷新都会重建。</summary>
+        private DeviceInfoResult _lastDeviceInfo;
+        private string _lastDeviceInfoTime;
+
+        private void DeviceInfoCopy_Click(object sender, RoutedEventArgs e)
+        {
+            if (_lastDeviceInfo == null)
+                return;
+
+            try
+            {
+                Clipboard.SetText(DeviceInfoReader.Describe(_lastDeviceInfo, _lastDeviceInfoTime));
+                AppendLog("[工具] 设备信息已复制到剪贴板。");
+            }
+            catch (Exception ex)
+            {
+                // 剪贴板被别的进程占着时会抛，属于常见且无害的失败，如实说一声即可
+                AppendLog("[工具] 复制设备信息失败（剪贴板可能被别的程序占用）：" + ex.Message);
+            }
+        }
+
         // =================================================================
         //  触发
         // =================================================================
@@ -123,8 +144,16 @@ namespace WpfApp1
         {
             bool allOk = result.OkCount == result.TotalCount;
             DeviceInfoStatusText.Foreground = allOk ? Brushes.Green : Brushes.Firebrick;
-            DeviceInfoStatusText.Text = result.Summary + "　最后更新 "
-                + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
+            string stamp = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            DeviceInfoStatusText.Text = result.Summary + "　最后更新 " + stamp;
+
+            // 留给「复制全部」用：面板每次刷新都会重建，选中过的内容会丢，
+            // 所以复制的来源不该是屏幕上的控件，而是这份模型。
+            _lastDeviceInfo = result;
+            _lastDeviceInfoTime = stamp;
+            if (DeviceInfoCopyButton != null)
+                DeviceInfoCopyButton.IsEnabled = true;
 
             AppendLog("[工具] 设备信息：" + result.Summary);
             for (int i = 0; i < result.Entries.Count; i++)
