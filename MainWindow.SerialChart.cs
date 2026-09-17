@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,6 +23,9 @@ namespace WpfApp1
         private const int MaxLogLines = 1000;
         private const int MaxPendingLines = 400;
         private const int MaxPendingFrames = 400;
+
+        /// <summary>因 UI 线程来不及消费而丢掉的帧数（读线程累加，UI 线程读）。</summary>
+        private int _droppedFrames;
 
         private readonly object _pendingSync = new object();
         private readonly Queue<string> _pendingLines = new Queue<string>();
@@ -701,7 +705,13 @@ namespace WpfApp1
             lock (_pendingSync)
             {
                 if (_pendingFrames.Count >= MaxPendingFrames)
+                {
+                    // 队列满说明 UI 线程来不及消费（绘制卡住、或者设备刷得太快）。
+                    // 这里丢帧**必须计数**：不做的话，界面上的「曲线有缺口」就分不清是
+                    // 设备没回、还是工具自己丢了——两者的排查方向完全相反。
                     _pendingFrames.Dequeue();
+                    _droppedFrames++;
+                }
                 _pendingFrames.Enqueue(frame);
             }
         }
@@ -769,6 +779,46 @@ namespace WpfApp1
 
             FlushLogText();
             SyncCommLogTab();
+            UpdateDropStats();
+        }
+
+        /// <summary>
+        /// 把三处「丢弃」计数显示出来。原先它们存在但**没有任何读者**，
+        /// 于是同一个症状（「曲线有缺口」）有好几种成因，而诊断方向完全相反：
+        ///
+        /// * 帧队列溢出 → **工具**来不及处理（绘制卡住 / 设备刷太快），要减负载或加缓冲；
+        /// * 裸帧丢字节 → 一直对不上 12 字节帧，多半是**链路**问题（波特率、接线）；
+        /// * 行溢出     → 设备刷得太快，或某"行"长到不合理；
+        /// * 自回显     → 设备把请求原样回了，这是**正常**的，不是故障。
+        ///
+        /// 全为零时不占地方。
+        /// </summary>
+        private void UpdateDropStats()
+        {
+            if (DropStatsText == null)
+                return;
+
+            int frames = _droppedFrames;
+            int lines = _session == null ? 0 : _session.DroppedLines;
+            int bytes = _session == null ? 0 : _session.DroppedBytes;
+            int echo = _session == null ? 0 : _session.SelfEchoIgnored;
+
+            if (frames == 0 && lines == 0 && bytes == 0 && echo == 0)
+            {
+                if (DropStatsText.Text.Length != 0)
+                    DropStatsText.Text = string.Empty;
+                return;
+            }
+
+            DropStatsText.Text = string.Format(CultureInfo.InvariantCulture,
+                "丢弃：帧 {0} · 行 {1} · 字节 {2} · 自回显 {3}", frames, lines, bytes, echo);
+
+            if (DropStatsText.ToolTip == null)
+                DropStatsText.ToolTip =
+                    "帧队列溢出：界面来不及处理（绘制卡住，或设备刷得太快）——是工具侧的负载问题。\n"
+                    + "裸帧丢字节：一直对不上 12 字节帧的同步——多半是链路问题（波特率 / 接线）。\n"
+                    + "行溢出：设备刷得太快，或某一行长到不合理。\n"
+                    + "自回显：设备把请求原样回了，工具正确地丢掉了它——这是正常的，不是故障。";
         }
 
         // =================================================================

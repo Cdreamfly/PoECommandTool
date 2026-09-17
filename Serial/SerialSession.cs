@@ -168,6 +168,21 @@ namespace WpfApp1.Serial
             get { return _selfEchoIgnored; }
         }
 
+        /// <summary>
+        /// 裸帧扫描时跳过的字节数。持续增长说明一直对不上 12 字节帧的同步——多半是
+        /// 波特率、接线，或者设备根本没在回帧。
+        /// </summary>
+        public int DroppedBytes
+        {
+            get { return _scanner.DroppedByteCount; }
+        }
+
+        /// <summary>行缓冲溢出而丢掉的行数。设备刷得太快、或者一"行"长到不合理时会涨。</summary>
+        public int DroppedLines
+        {
+            get { return _assembler.DroppedLineCount; }
+        }
+
         /// <summary>每收到一行文本（已按 CR/LF 拆好）。</summary>
         public event Action<string> LineReceived;
 
@@ -542,22 +557,38 @@ namespace WpfApp1.Serial
                 var chunk = new byte[count];
                 Buffer.BlockCopy(buffer, 0, chunk, 0, count);
 
-                if (ReceiveMode == ReceiveMode.RawFrames)
+                // 这一段（拆包 + 分发 + 解析）原先**没有** try/catch。异常会逃离读循环，
+                // 把 ReadLoopTask 挂成 faulted，而那个 Task 没有人 await——于是它变成
+                // 「未观察的任务异常」，在 GC 之前悄无声息，而界面还写着「已打开」。
+                // 用户看到的是图表不再更新、轮询一直超时，却没有任何线索指向
+                // 「收包线程已经死了」。这里把它降级成一次故障通知并退出循环：
+                // 链路状态如实反映问题，界面能据此停下轮询并提示。
+                try
                 {
-                    IList<byte[]> frames = _scanner.Append(chunk, count);
-                    for (int i = 0; i < frames.Count; i++)
-                        HandleFrame(Inspect(frames[i], "(裸帧)", ByteOrder));
-                    continue;
-                }
+                    if (ReceiveMode == ReceiveMode.RawFrames)
+                    {
+                        IList<byte[]> frames = _scanner.Append(chunk, count);
+                        for (int i = 0; i < frames.Count; i++)
+                            HandleFrame(Inspect(frames[i], "(裸帧)", ByteOrder));
+                        continue;
+                    }
 
-                IList<string> lines;
-                lock (_assemblerSync)
+                    IList<string> lines;
+                    lock (_assemblerSync)
+                    {
+                        lines = _assembler.Append(chunk, count);
+                    }
+
+                    for (int i = 0; i < lines.Count; i++)
+                        HandleLine(lines[i]);
+                }
+                catch (Exception ex)
                 {
-                    lines = _assembler.Append(chunk, count);
+                    _isOpen = false;
+                    RaiseFault(SerialFaultKind.ReadFailed,
+                        "处理收到的数据时出错，收包线程已停止：" + ex.Message, ex);
+                    return;
                 }
-
-                for (int i = 0; i < lines.Count; i++)
-                    HandleLine(lines[i]);
             }
         }
 

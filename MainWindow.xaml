@@ -239,6 +239,8 @@
                             VerticalAlignment="Center" Click="OpenClose_Click"/>
                     <TextBlock x:Name="SerialStatusText" Text="未打开" VerticalAlignment="Center"
                                Margin="12,0,0,0" Foreground="#888888"/>
+                    <TextBlock x:Name="DropStatsText" VerticalAlignment="Center"
+                               Margin="16,0,0,0" Foreground="#C62828" FontWeight="Bold"/>
                 </WrapPanel>
 
                 <!-- 发送方式 -->
