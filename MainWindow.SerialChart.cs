@@ -47,6 +47,9 @@ namespace WpfApp1
         private readonly HashSet<string> _collapsedGroups = new HashSet<string>();
         private bool _updatingLegend;
 
+        /// <summary>本 tick 里有新曲线冒出来，图例需要在循环外统一重建一次（见 SampleFrame）。</summary>
+        private bool _legendDirty;
+
         private DispatcherTimer _logTimer;
         private DispatcherTimer _chartTimer;
         private bool _hasNewSamples;
@@ -775,6 +778,14 @@ namespace WpfApp1
             for (int i = 0; i < frames.Count; i++)
                 SampleFrame(frames[i]);
 
+            // 本 tick 里冒出新曲线的话，图例在这里统一重建一次。
+            // 放在循环外是必须的，理由见 SampleFrame 里那段说明。
+            if (_legendDirty)
+            {
+                _legendDirty = false;
+                BuildLegend();
+            }
+
             for (int i = 0; i < lines.Count; i++)
                 AppendLogCore(lines[i]);
 
@@ -1069,7 +1080,13 @@ namespace WpfApp1
                 if (!_seriesByKey.TryGetValue(candidate.Key, out buffer))
                 {
                     buffer = CreateSeries(candidate);
-                    BuildLegend();
+
+                    // 只做个记号，**不在这里重建图例**：BuildLegend 是清空 + 逐行重建，
+                    // 而它在逐候选循环里——48 端口 × 4 个参数逐个冒出来的话，
+                    // 第 k 次重建要造 k 行，合计 1+2+…+192 ≈ 18,500 次行构造
+                    //（约 55k 个控件、74k 次事件接线），表现为采样时一次多秒的界面冻结。
+                    // 攒到本 tick 结束再重建一次即可。
+                    _legendDirty = true;
                 }
 
                 if (buffer.Add(now, candidate.Value))

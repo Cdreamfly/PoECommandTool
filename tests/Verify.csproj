@@ -32,6 +32,7 @@
     <Compile Include="CommandKeyTests.cs" />
     <Compile Include="CommandExchangeTests.cs" />
     <Compile Include="CommLogTests.cs" />
+    <Compile Include="SeriesGrowthTests.cs" />
     <Compile Include="..\Chart\*.cs"
              Exclude="..\Chart\ChartPlotElement.cs" />
     <Compile Include="..\Rtl8239Catalog.cs" />
