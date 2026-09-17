@@ -180,6 +180,7 @@
     <Compile Include="Chart\SeriesLabel.cs" />
     <Compile Include="Chart\TelemetryExtractor.cs" />
     <Compile Include="Chart\ChartMath.cs" />
+    <Compile Include="Chart\ThresholdSet.cs" />
     <Compile Include="Chart\ChartPlotElement.cs" />
   </ItemGroup>
   <ItemGroup>

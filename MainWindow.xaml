@@ -371,6 +371,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Text="曲线（勾选显示 · 单击选中 · 双击看详情）" FontWeight="Bold" TextWrapping="Wrap"/>
@@ -427,6 +428,16 @@
                         </WrapPanel>
                         <TextBlock Grid.Row="5" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#888888"
                                    Text="滚轮缩放纵轴；单击图例选中曲线，双击看详情。"/>
+
+                        <WrapPanel Grid.Row="6" Margin="0,6,0,0">
+                            <TextBlock Text="阈值线" VerticalAlignment="Center"/>
+                            <TextBox x:Name="ThresholdBox" Width="120" Height="26" Margin="6,0,0,0"
+                                     FontFamily="Consolas" VerticalContentAlignment="Center"
+                                     TextChanged="ThresholdBox_TextChanged"
+                                     ToolTip="按单位画一条水平参考线，例如 W=30, ℃=70（数值用图例上显示的单位）。留空则不画。"/>
+                            <TextBlock x:Name="ThresholdHint" VerticalAlignment="Center" Margin="8,0,0,0"
+                                       Foreground="#888888" FontSize="11"/>
+                        </WrapPanel>
                     </Grid>
 
                     <Border Grid.Column="1" Grid.Row="0" BorderBrush="#DDDDDD" BorderThickness="1" Margin="10,0,0,0">

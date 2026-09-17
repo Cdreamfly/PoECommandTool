@@ -99,6 +99,7 @@ namespace Rtl8239Verify
             LogTagTests();
             CommLogClearTests();
             SeriesGrowthTests();
+            ThresholdSetTests();
 
             Console.WriteLine();
             Console.WriteLine(_failed == 0

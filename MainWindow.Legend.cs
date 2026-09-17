@@ -452,6 +452,41 @@ namespace WpfApp1
         }
 
         /// <summary>曲线名 "0x44 端口0 功率" → 分组用的 "功率"。</summary>
+        /// <summary>
+        /// 阈值线输入框变了就重画。写错时把原因显示在框旁边，**不静默忽略**——
+        /// 静默的话用户会以为阈值功能坏了。
+        /// </summary>
+        private void ThresholdBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (Plot == null || ThresholdBox == null)
+                return;
+
+            try
+            {
+                Plot.Thresholds = ThresholdSet.Parse(ThresholdBox.Text);
+                Plot.InvalidateThresholds();
+
+                if (ThresholdHint != null)
+                {
+                    ThresholdHint.Foreground = Gray;
+                    ThresholdHint.Text = Plot.Thresholds.Count == 0
+                        ? string.Empty
+                        : "（已画 " + ThresholdSet.Describe(Plot.Thresholds) + "）";
+                }
+            }
+            catch (Exception ex)
+            {
+                Plot.Thresholds = null;
+                Plot.InvalidateThresholds();
+
+                if (ThresholdHint != null)
+                {
+                    ThresholdHint.Foreground = Brushes.Firebrick;
+                    ThresholdHint.Text = ex.Message;
+                }
+            }
+        }
+
         private static string ParameterLabel(SeriesBuffer buffer)
         {
             return SeriesLabel.Parameter(buffer.Key, buffer.Name, buffer.Unit);

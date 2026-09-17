@@ -32,6 +32,10 @@ namespace ChartProbe
             Render(outDir, "multiport.png", BuildMultiPort(), TimeSpan.FromMinutes(1), 1.0);
             Render(outDir, "zoom_extreme.png", BuildMultiPort(), TimeSpan.FromMinutes(1), 20.0);
 
+            // 阈值参考线：W 带画在 30W、mA 带画在 550mA —— 两条线应当落在各自的带里
+            var thresholds = new Dictionary<string, double> { { "W", 30 }, { "mA", 550 } };
+            RenderFull(outDir, "threshold.png", BuildMultiPort(), 1.0, Width, Height, null, thresholds);
+
             // 实际界面里曲线那一行只有一百多像素高——这才是用户看到的样子
             RenderSized(outDir, "cramped130.png", BuildSeries(frame, 300, 200, true), 1.0, 660, 130);
             RenderSized(outDir, "cramped100.png", BuildSeries(frame, 300, 200, true), 1.0, 660, 100);
@@ -174,10 +178,17 @@ namespace ChartProbe
         private static void RenderSized(string outDir, string fileName, List<SeriesBuffer> series,
             double zoom, int width, int height, string selectedKey)
         {
+            RenderFull(outDir, fileName, series, zoom, width, height, selectedKey, null);
+        }
+
+        private static void RenderFull(string outDir, string fileName, List<SeriesBuffer> series,
+            double zoom, int width, int height, string selectedKey, Dictionary<string, double> thresholds)
+        {
             var plot = new ChartPlotElement
             {
                 Series = series,
                 Window = TimeSpan.FromMinutes(1),
+                Thresholds = thresholds,
             };
             plot.ZoomValue(zoom);
             if (selectedKey != null)

@@ -27,6 +27,23 @@ namespace WpfApp1.Chart
         private static readonly Pen CrosshairPen = CreateDashedPen(Color.FromRgb(0x88, 0x88, 0x88), 1);
         private static readonly Brush LabelBrush = CreateBrush(Color.FromRgb(0x55, 0x55, 0x55));
         private static readonly Brush UnitBrush = CreateBrush(Color.FromRgb(0x1A, 0x73, 0xE8));
+
+        /// <summary>阈值线用的笔：红色虚线，和网格线、曲线都区分得开。</summary>
+        private static readonly Pen ThresholdPen = CreateThresholdPen();
+
+        private static Pen CreateThresholdPen()
+        {
+            var pen = new Pen(CreateBrush(Color.FromRgb(0xD3, 0x2F, 0x2F)), 1.4);
+            pen.DashStyle = DashStyles.Dash;
+            pen.Freeze();
+            return pen;
+        }
+
+        /// <summary>
+        /// 阈值参考线：按单位给一条水平线（"W" → 30 表示功率带里画在 30W）。
+        /// 数值用**显示单位**，也就是用户在图例上看到的那个单位。
+        /// </summary>
+        public Dictionary<string, double> Thresholds { get; set; }
         private static readonly Brush RangeBrush = CreateBrush(Color.FromRgb(0x66, 0x66, 0x66));
         private static readonly Brush ReadoutBrush = CreateBrush(Color.FromRgb(0x22, 0x22, 0x22));
         private static readonly Brush ReadoutBackground = CreateBrush(Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
@@ -231,6 +248,12 @@ namespace WpfApp1.Chart
             InvalidateVisual();
         }
 
+        /// <summary>阈值线变了：只需重画，布局不用重算。</summary>
+        public void InvalidateThresholds()
+        {
+            InvalidateVisual();
+        }
+
         protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
         {
             _layoutDirty = true;
@@ -320,6 +343,24 @@ namespace WpfApp1.Chart
 
                     DrawLabel(drawingContext, ChartMath.FormatTick(band.TickValues[t] * displayScale, step),
                         plotLeft - 6, y, pixelsPerDip, TextAlignment.Right);
+                }
+
+                // 阈值参考线：落在本带显示范围内的才画（超出范围时画在带外没有意义）
+                double? threshold = ThresholdSet.For(Thresholds, displayUnit);
+                if (threshold.HasValue)
+                {
+                    double raw = threshold.Value / displayScale;
+                    if (raw >= band.Min && raw <= band.Max)
+                    {
+                        double ty = ChartMath.MapY(raw, band.Min, band.Max, band.PlotTop, band.PlotHeight);
+                        drawingContext.DrawLine(ThresholdPen,
+                            new Point(plotLeft, ty), new Point(plotLeft + plotWidth, ty));
+
+                        // 标签放**左侧**：右侧是「变化 x」读数常驻的地方，压上去会两边都看不清
+                        DrawLabel(drawingContext,
+                            ChartMath.FormatTick(threshold.Value, step) + displayUnit,
+                            plotLeft + 4, ty, pixelsPerDip, TextAlignment.Left);
+                    }
                 }
 
                 // 单位：有页眉就放页眉左侧；挤得没页眉时放右上角，避免和刻度标签重叠
