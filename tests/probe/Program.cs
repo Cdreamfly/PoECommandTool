@@ -43,6 +43,9 @@ namespace ChartProbe
                 marks.Add(new ChartMarker(baseTime.AddSeconds(-40 + i * 12), "端口 " + i + " 事件"));
             RenderFull(outDir, "markers.png", BuildMultiPort(), 1.0, Width, Height, null, null, marks);
 
+            // 时间轴缩放：×0.25 应当只显示窗口的最后四分之一（曲线被横向放大）
+            RenderTimeZoom(outDir, "timezoom.png", BuildMultiPort(), 0.25);
+
             // 实际界面里曲线那一行只有一百多像素高——这才是用户看到的样子
             RenderSized(outDir, "cramped130.png", BuildSeries(frame, 300, 200, true), 1.0, 660, 130);
             RenderSized(outDir, "cramped100.png", BuildSeries(frame, 300, 200, true), 1.0, 660, 100);
@@ -174,6 +177,30 @@ namespace ChartProbe
             TimeSpan window, double zoom)
         {
             RenderSized(outDir, fileName, series, zoom, Width, Height);
+        }
+
+        private static void RenderTimeZoom(string outDir, string fileName, List<SeriesBuffer> series, double timeZoom)
+        {
+            var plot = new ChartPlotElement
+            {
+                Series = series,
+                Window = TimeSpan.FromMinutes(1),
+            };
+            plot.SetTimeZoom(timeZoom);
+            plot.Measure(new Size(Width, Height));
+            plot.Arrange(new Rect(0, 0, Width, Height));
+            plot.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(Width, Height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(plot);
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (FileStream stream = File.Create(Path.Combine(outDir, fileName)))
+                encoder.Save(stream);
+
+            Console.WriteLine("  " + fileName + "  " + Width + "x" + Height
+                + "  时间轴 ×" + plot.TimeZoom.ToString("0.##"));
         }
 
         private static void RenderSized(string outDir, string fileName, List<SeriesBuffer> series,

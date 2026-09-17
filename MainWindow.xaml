@@ -423,11 +423,11 @@
                                     Margin="6,0,0,0" Click="ZoomOut_Click"/>
                             <Button x:Name="ZoomAutoButton" Content="自动" Width="52" Height="26"
                                     Margin="6,0,0,0" Click="ZoomAuto_Click"
-                                    ToolTip="恢复成按数据范围自动铺满"/>
+                                    ToolTip="纵轴与时间轴都恢复成自动（纵轴按数据范围铺满、时间轴用上面选的跨度）"/>
                             <TextBlock x:Name="ZoomText" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="#888888"/>
                         </WrapPanel>
                         <TextBlock Grid.Row="5" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#888888"
-                                   Text="滚轮缩放纵轴；单击图例选中曲线，双击看详情。"/>
+                                   Text="滚轮缩纵轴，Ctrl+滚轮缩时间轴；单击图例选中曲线，双击看详情。"/>
 
                         <WrapPanel Grid.Row="6" Margin="0,6,0,0">
                             <TextBlock Text="阈值线" VerticalAlignment="Center"/>

@@ -165,9 +165,12 @@ namespace WpfApp1
             Plot.ZoomValue(1.0 / ChartPlotElement.ZoomStep);
         }
 
+        /// <summary>「自动」= 纵横两个缩放都恢复默认。</summary>
         private void ZoomAuto_Click(object sender, RoutedEventArgs e)
         {
+            // 纵横两个缩放一起恢复：按钮写着「自动」，只回其中一个会让人以为另一个坏了
             Plot.ResetValueZoom();
+            Plot.ResetTimeZoom();
         }
 
         /// <summary>时间回看：把画面钉在「现在 − N 分钟」的位置，不再跟着最新数据滑。</summary>
@@ -199,10 +202,15 @@ namespace WpfApp1
             if (ZoomText == null || Plot == null)
                 return;
 
-            // 自动状态就不显示文字了——旁边那个「自动」按钮已经说明了，写两遍反而乱
-            ZoomText.Text = Math.Abs(Plot.ValueZoom - 1.0) < 1e-9
-                ? string.Empty
-                : "×" + Plot.ValueZoom.ToString("0.##");
+            // 自动状态就不显示文字了——旁边那个「自动」按钮已经说明了，写两遍反而乱。
+            // 两个缩放各自标注，免得看到一个「×2」不知道说的是哪一根轴。
+            var parts = new List<string>();
+            if (Math.Abs(Plot.ValueZoom - 1.0) > 1e-9)
+                parts.Add("纵轴 ×" + Plot.ValueZoom.ToString("0.##"));
+            if (Math.Abs(Plot.TimeZoom - 1.0) > 1e-9)
+                parts.Add("时间轴 ×" + Plot.TimeZoom.ToString("0.##"));
+
+            ZoomText.Text = parts.Count == 0 ? string.Empty : string.Join("　", parts.ToArray());
         }
 
         private void ClearChart_Click(object sender, RoutedEventArgs e)

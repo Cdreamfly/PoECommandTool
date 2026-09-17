@@ -158,12 +158,65 @@ namespace WpfApp1.Chart
             InvalidateLayout();
         }
 
-        /// <summary>鼠标滚轮：直接缩放纵轴（时间轴用上面的时间窗下拉控制）。</summary>
+        /// <summary>
+        /// 鼠标滚轮缩纵轴；**按住 Ctrl** 则缩时间轴（横向缩放）。
+        ///
+        /// 时间轴原先只能用上面那个固定档位的下拉框（10 秒…1 小时），
+        /// 想在某个拐点附近看清楚做不到。Ctrl+滚轮给一个连续可调的倍数。
+        /// </summary>
         protected override void OnMouseWheel(MouseWheelEventArgs e)
         {
-            ZoomValue(e.Delta > 0 ? ZoomStep : 1.0 / ZoomStep);
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                // 向上滚 = 拉近（看得更短）
+                double factor = e.Delta > 0 ? 1.0 / ZoomStep : ZoomStep;
+                SetTimeZoom(TimeZoom * factor);
+            }
+            else
+            {
+                ZoomValue(e.Delta > 0 ? ZoomStep : 1.0 / ZoomStep);
+            }
+
             e.Handled = true;
         }
+
+        /// <summary>时间轴缩放倍数：1.0 = 就用时间窗下拉框设定的跨度。</summary>
+        public double TimeZoom
+        {
+            get { return _timeZoom; }
+        }
+
+        private double _timeZoom = 1.0;
+
+        public void SetTimeZoom(double zoom)
+        {
+            if (double.IsNaN(zoom) || double.IsInfinity(zoom) || zoom <= 0)
+                return;
+
+            if (zoom < ChartMath.MinTimeZoom) zoom = ChartMath.MinTimeZoom;
+            if (zoom > MaxTimeZoom) zoom = MaxTimeZoom;
+            if (Math.Abs(zoom - _timeZoom) < 1e-9)
+                return;
+
+            _timeZoom = zoom;
+            Action handler = TimeZoomChanged;
+            if (handler != null)
+                handler();
+
+            InvalidateLayout();
+        }
+
+        /// <summary>恢复成「就用时间窗下拉框的跨度」。</summary>
+        public void ResetTimeZoom()
+        {
+            SetTimeZoom(1.0);
+        }
+
+        /// <summary>时间轴缩放变了（用于更新界面上的显示）。</summary>
+        public event Action TimeZoomChanged;
+
+        /// <summary>最多拉远到这个倍数。</summary>
+        public const double MaxTimeZoom = 50.0;
 
         /// <summary>选中某条曲线（传 null 取消选中）。</summary>
         public void SelectCurve(string key)
@@ -181,7 +234,7 @@ namespace WpfApp1.Chart
         /// <summary>当前画面显示的时间范围（和 OnRender 用的是同一套算法）。</summary>
         public void ResolveVisibleWindow(out DateTime from, out DateTime to)
         {
-            ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, out from, out to);
+            ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, _timeZoom, out from, out to);
         }
 
         /// <summary>双击曲线：找出离光标最近的那条（够近才算）。</summary>
@@ -312,7 +365,7 @@ namespace WpfApp1.Chart
             {
                 DateTime from;
                 DateTime to;
-                ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, out from, out to);
+                ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, _timeZoom, out from, out to);
 
                 layout = ChartMath.Build(Series, from, to,
                     plotLeft, plotTop, plotWidth, plotHeight, MaxPointsPerLine, ValueZoom);
