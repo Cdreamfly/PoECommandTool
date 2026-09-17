@@ -7,11 +7,11 @@ using System.Windows;
 // 有关程序集的一般信息由以下
 // 控制。更改这些特性值可修改
 // 与程序集关联的信息。
-[assembly: AssemblyTitle("RTL8239 PoE Command Tool")]
+[assembly: AssemblyTitle("PoECommandTool")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("cmf")]
-[assembly: AssemblyProduct("RTL8239 PoE Command Tool")]
+[assembly: AssemblyProduct("PoECommandTool")]
 [assembly: AssemblyCopyright("Copyright © 2025 cmf")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

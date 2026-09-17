@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:PoECommandTool"
         xmlns:chart="clr-namespace:PoECommandTool.Chart"
         mc:Ignorable="d"
-        Title="RTL8239 PoE Command Tool" Height="700" Width="1080"
+        Title="PoECommandTool" Height="700" Width="1080"
         Icon="POE.ico"
         WindowStartupLocation="CenterScreen">
 

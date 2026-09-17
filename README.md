@@ -1,4 +1,4 @@
-# RTL8239 PoE Command Tool
+# PoECommandTool
 
 Realtek RTL8239 PoE 控制器的上位机调试工具。Windows 桌面程序（WPF，.NET Framework 4.8，
 C# 语言版本锁 **7.3**）。

@@ -21,7 +21,7 @@ namespace PoECommandTool
         /// <summary>窗口标题用的完整名称。</summary>
         public static string Title
         {
-            get { return "RTL8239 PoE Command Tool " + Display; }
+            get { return "PoECommandTool " + Display; }
         }
 
         /// <summary>关于框里显示的形式，例如 "VER 1.3.1"。</summary>
