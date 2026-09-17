@@ -84,7 +84,7 @@ namespace WpfApp1.Chart
             {
                 _timeOffset = value;
                 _anchor = DateTime.Now;     // 拖动滑块时把窗口钉在此刻，画面才不会继续往前滑
-                InvalidateVisual();
+                InvalidateLayout();
             }
         }
 
@@ -127,7 +127,7 @@ namespace WpfApp1.Chart
             Action handler = ValueZoomChanged;
             if (handler != null)
                 handler();
-            InvalidateVisual();
+            InvalidateLayout();
         }
 
         /// <summary>鼠标滚轮：直接缩放纵轴（时间轴用上面的时间窗下拉控制）。</summary>
@@ -210,6 +210,33 @@ namespace WpfApp1.Chart
             return best;
         }
 
+        /// <summary>上一次算出来的布局。鼠标移动时直接复用它，不重算。</summary>
+        private ChartLayout _cachedLayout;
+
+        /// <summary>布局失效：数据、时间窗、缩放或尺寸变了，下一帧必须重算。</summary>
+        private bool _layoutDirty = true;
+
+        /// <summary>
+        /// 数据 / 时间窗 / 缩放 / 尺寸变了 —— 下一帧要重算布局。
+        ///
+        /// 与 <see cref="UIElement.InvalidateVisual"/> 的区别就在这里：后者只重画，
+        /// 而重画时如果不复用布局，就会在**每一次鼠标移动**上把 <see cref="ChartMath.Build"/>
+        /// 重跑一遍。那个函数按时间窗从最旧一个采样扫起，满缓冲下 192 条曲线约
+        /// 3.8M 次操作 ≈ 50–150ms，指针每秒 60–125 次事件——界面会被它拖住，
+        /// 而轮询的续体是 dispatcher 投递的，于是采样节拍也跟着抖。
+        /// </summary>
+        public void InvalidateLayout()
+        {
+            _layoutDirty = true;
+            InvalidateVisual();
+        }
+
+        protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+        {
+            _layoutDirty = true;
+            base.OnRenderSizeChanged(sizeInfo);
+        }
+
         /// <summary>鼠标移动时画出十字准线，直接显示那一刻每条曲线的数值。</summary>
         protected override void OnMouseMove(MouseEventArgs e)
         {
@@ -240,12 +267,19 @@ namespace WpfApp1.Chart
             if (plotWidth <= 10 || plotHeight <= 10)
                 return;
 
-            DateTime from;
-            DateTime to;
-            ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, out from, out to);
+            ChartLayout layout = _cachedLayout;
+            if (_layoutDirty || layout == null)
+            {
+                DateTime from;
+                DateTime to;
+                ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, out from, out to);
 
-            ChartLayout layout = ChartMath.Build(Series, from, to,
-                plotLeft, plotTop, plotWidth, plotHeight, MaxPointsPerLine, ValueZoom);
+                layout = ChartMath.Build(Series, from, to,
+                    plotLeft, plotTop, plotWidth, plotHeight, MaxPointsPerLine, ValueZoom);
+                _cachedLayout = layout;
+                _layoutDirty = false;
+            }
+
             CurrentLayout = layout;     // 命中测试与统计取窗口都要用
 
             if (layout.Bands.Count == 0)

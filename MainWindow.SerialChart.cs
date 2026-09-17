@@ -100,7 +100,7 @@ namespace WpfApp1
             }
 
             MaximizeChartButton.Content = maximize ? "还原" : "最大化";
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
             AppendLog(maximize ? "曲线已最大化（轮询的启停仍保留在这一页）。" : "已还原布局。");
         }
 
@@ -344,7 +344,7 @@ namespace WpfApp1
             }
 
             UpdateLegendGroups();
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
         }
 
         /// <summary>新建一条曲线缓冲，并分配颜色。</summary>
@@ -423,7 +423,7 @@ namespace WpfApp1
 
             if (changed)
                 BuildLegend();
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
         }
 
         private void LegendCheckBox_Toggled(object sender, RoutedEventArgs e)
@@ -441,7 +441,7 @@ namespace WpfApp1
 
             buffer.Visible = checkBox.IsChecked == true;
             UpdateLegendGroups();
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
         }
 
         /// <summary>单击图例项：选中/取消选中该曲线；双击：弹出详细统计。</summary>
@@ -585,7 +585,7 @@ namespace WpfApp1
                 index = 2;      // 1 分钟
 
             Plot.Window = WindowOptions[index];
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
         }
 
         private void ZoomIn_Click(object sender, RoutedEventArgs e)
@@ -615,7 +615,7 @@ namespace WpfApp1
             if (HistoryText != null)
                 HistoryText.Text = minutes < 0.01 ? "现在" : "−" + minutes.ToString("0.#") + " 分";
 
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
         }
 
         private void HistoryLive_Click(object sender, RoutedEventArgs e)
@@ -648,7 +648,7 @@ namespace WpfApp1
             Plot.SelectCurve(null);      // 选中的那条也没了
             BuildLegend();
             _hasNewSamples = true;
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
             AppendLog("已清空曲线。");
         }
 
@@ -659,7 +659,7 @@ namespace WpfApp1
 
             _hasNewSamples = false;
             UpdateLegendValues();
-            Plot.InvalidateVisual();
+            Plot.InvalidateLayout();
         }
 
         private void UpdateLegendValues()
