@@ -634,6 +634,9 @@ namespace WpfApp1
         {
             _legend.Clear();
             _seriesByKey.Clear();
+            // 一次性提示的去重集合也要清掉，否则「0x42 只有状态…」那类提示
+            // 整个进程生命周期只出现一次——用户清空重来之后再也看不到它了。
+            _loggedOnce.Clear();
             Plot.SelectCurve(null);      // 选中的那条也没了
             BuildLegend();
             _hasNewSamples = true;

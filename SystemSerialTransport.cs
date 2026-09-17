@@ -107,20 +107,6 @@ namespace WpfApp1.Serial
             port.Write(data, offset, count);
         }
 
-        public void DiscardInBuffer()
-        {
-            SerialPort port = _port;
-            if (port != null && port.IsOpen)
-                port.DiscardInBuffer();
-        }
-
-        public void DiscardOutBuffer()
-        {
-            SerialPort port = _port;
-            if (port != null && port.IsOpen)
-                port.DiscardOutBuffer();
-        }
-
         public string[] GetPortNames()
         {
             try

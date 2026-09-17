@@ -114,9 +114,6 @@ namespace WpfApp1.Serial
 
         void Write(byte[] data, int offset, int count);
 
-        void DiscardInBuffer();
-        void DiscardOutBuffer();
-
         /// <summary>当前系统上可用的串口名（打开之前也能调用）。</summary>
         string[] GetPortNames();
     }

@@ -173,9 +173,11 @@
                 <StackPanel Grid.Row="0" Orientation="Horizontal">
                     <TextBlock Text="下载类型：" VerticalAlignment="Center"/>
                     <RadioButton x:Name="DownloadTypeApp" Content="App 下载 (0xC0-80~83)"
-                                 IsChecked="True" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                 IsChecked="True" VerticalAlignment="Center" Margin="8,0,0,0"
+                                 Checked="DownloadType_Checked"/>
                     <RadioButton x:Name="DownloadTypeFw" Content="Firmware 下载 (0xCA)"
-                                 VerticalAlignment="Center" Margin="16,0,0,0"/>
+                                 VerticalAlignment="Center" Margin="16,0,0,0"
+                                 Checked="DownloadType_Checked"/>
                     <TextBlock Text="序列号" VerticalAlignment="Center" Margin="28,0,0,0"/>
                     <TextBox x:Name="DlSeqText" Text="01" Width="60" Height="26" Margin="6,0,0,0"
                              VerticalAlignment="Center" FontFamily="Consolas"
@@ -193,8 +195,7 @@
                     <Button x:Name="GenDlButton" DockPanel.Dock="Right" Content="生成下载帧"
                             Width="130" Height="26" Click="GenDownload_Click"/>
                     <TextBlock x:Name="DlHint" TextWrapping="Wrap" LineHeight="20" Foreground="#555555"
-                               VerticalAlignment="Center"
-                               Text="按 32 字节分帧，自动计算 64K 块号（SUB）与偏移。App 下载固件需 4 字节对齐。"/>
+                               VerticalAlignment="Center"/>
                 </DockPanel>
 
                 <GroupBox Grid.Row="3" Header="下载命令帧" Margin="0,10,0,0" Padding="8">

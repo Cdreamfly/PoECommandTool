@@ -350,6 +350,27 @@ namespace WpfApp1
 
         // 生成下载帧序列。帧生成的规划逻辑（分帧/对齐/块号/偏移）全部在
         // Rtl8239DownloadPlan 里（纯 C#，可在无 WPF 环境下断言），这里只负责读文件与渲染文本。
+        /// <summary>
+        /// 两种下载模式的约束**完全不同**（对齐要求、容量上限、帧里带不带 64K 块号），
+        /// 所以提示必须跟着模式走。原先只有一条写死给 App 的文案，切到 Firmware 时
+        /// 它说的就是错的——而这是全工具最有 brick 风险的那条路径。
+        /// </summary>
+        private void DownloadType_Checked(object sender, RoutedEventArgs e)
+        {
+            // XAML 解析到 DownloadTypeApp 的 IsChecked="True" 时就会触发这里，
+            // 那一刻 DlHint / DownloadTypeFw 还没被创建出来。
+            if (DlHint == null || DownloadTypeFw == null)
+                return;
+
+            DlHint.Text = DownloadTypeFw.IsChecked == true
+                ? "按 32 字节分帧，自动计算偏移（Firmware 模式不带 64K 块号 SUB）。"
+                  + "镜像偏移字段只有 16 位，上限 64 KB；镜像需按 32 字节对齐（末帧允许 4/8/16/32）。"
+                  + "生成的帧需交给外部 Loader 写入设备——本工具不发送它们。"
+                : "按 32 字节分帧，自动计算 64K 块号（SUB = 0x80 + 块号）与偏移。"
+                  + "镜像需 4 字节对齐，上限 256 KB（4 个 64K 块）。"
+                  + "生成的帧需交给外部 Loader 写入设备——本工具不发送它们。";
+        }
+
         private void GenDownload_Click(object sender, RoutedEventArgs e)
         {
             try

@@ -169,7 +169,7 @@ namespace WpfApp1
             Def("0x02", "全局复位设置", CatControl,
                 "复位整个 PoE 子系统。\n参数：0x00 = 不复位，0x01 = 复位。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalResetSet(seq, (byte)v[0]),
-                B("复位值（0x00 不复位 / 0x01 复位）", 0x01)),
+                B("复位值（0x00 不复位 / 0x01 复位）", 0x00)),
 
             Def("0x03", "端口复位设置", CatControl,
                 "将指定端口状态机复位到空闲、配置值恢复默认。\n值：0x00 = 不复位，0x01 = 复位。",

@@ -98,13 +98,6 @@ namespace Rtl8239Verify
                 Feed(echo);
         }
 
-        public void DiscardInBuffer()
-        {
-            lock (_sync) _incoming.Clear();
-        }
-
-        public void DiscardOutBuffer() { }
-
         public string[] GetPortNames()
         {
             return new[] { "COM_TEST" };

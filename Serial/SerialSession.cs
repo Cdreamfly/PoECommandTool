@@ -171,9 +171,6 @@ namespace WpfApp1.Serial
         /// <summary>每收到一行文本（已按 CR/LF 拆好）。</summary>
         public event Action<string> LineReceived;
 
-        /// <summary>每收到一段原始字节。</summary>
-        public event Action<byte[]> BytesReceived;
-
         /// <summary>每从某一行里提取到一帧（无论解析成功与否）。</summary>
         public event Action<FrameEvent> FrameReceived;
 
@@ -544,10 +541,6 @@ namespace WpfApp1.Serial
                 idleReads = 0;
                 var chunk = new byte[count];
                 Buffer.BlockCopy(buffer, 0, chunk, 0, count);
-
-                Action<byte[]> bytesHandler = BytesReceived;
-                if (bytesHandler != null)
-                    bytesHandler(chunk);
 
                 if (ReceiveMode == ReceiveMode.RawFrames)
                 {
