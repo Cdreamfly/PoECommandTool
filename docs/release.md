@@ -6,8 +6,8 @@
 
 | 位置 | 当前值 | 说明 |
 |---|---|---|
-| `AppVersion.cs` 的 `AppVersion.Number` | `1.3.0` | 标题栏 / 关于框 / 启动日志 / 程序集版本都读它（`Properties/AssemblyInfo.cs` 引用同一个常量） |
-| `WpfApp1.csproj` 的 `<ApplicationVersion>` | `1.3.0.0` | 四段式；`<ApplicationRevision>` 保持 `0` |
+| `AppVersion.cs` 的 `AppVersion.Number` | `1.3.1` | 标题栏 / 关于框 / 启动日志 / 程序集版本都读它（`Properties/AssemblyInfo.cs` 引用同一个常量） |
+| `WpfApp1.csproj` 的 `<ApplicationVersion>` | `1.3.1.0` | 四段式；`<ApplicationRevision>` 保持 `0` |
 
 改完跑一次构建，确认 exe 的文件属性里 `FileVersion` / `ProductVersion` 是同一个版本。
 
