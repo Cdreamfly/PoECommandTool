@@ -94,22 +94,20 @@ namespace WpfApp1.Serial
 
         private sealed class InfoCommand
         {
-            public string Key;
+            /// <summary>命令号与子命令都从这里取——解析规则只该有一份（见 <see cref="CommandKey"/>）。</summary>
+            public CommandKey Command;
             public string Title;
 
-            /// <summary>回包 Byte0，用于请求-响应配对。</summary>
-            public byte CommandId;
-
-            /// <summary>0xC0 系的子命令（回包 Byte1）；其它命令为 0，表示「无子命令」。</summary>
-            public byte SubCommand;
+            public string Key { get { return Command.Key; } }
+            public byte CommandId { get { return Command.CommandId; } }
         }
 
         /// <summary>
         /// 要读的命令，顺序即**显示**顺序。
         ///
-        /// 身份信息（命令号、子命令）全部从 <see cref="CommandOwnership"/> 的键名推导，
-        /// 不另写一份——两份手工维护的同一事实早晚会漂移，而漂移的后果是
-        /// 「用一条命令造的帧、等另一条命令的回包」，表现成必然超时。
+        /// 身份信息（命令号、子命令）由 <see cref="CommandKey.Parse"/> 从
+        /// <see cref="CommandOwnership"/> 的键名推导，不另写一份——两份手工维护的同一事实
+        /// 早晚会漂移，而漂移的后果是「用一条命令造的帧、等另一条命令的回包」，表现成必然超时。
         ///
         /// 注意这个数组**不再**兼任执行顺序：0x4C 要读几块取决于 0x50，见 <see cref="ReadAllAsync"/>。
         /// </summary>
@@ -122,14 +120,9 @@ namespace WpfApp1.Serial
 
             for (int i = 0; i < owners.Length; i++)
             {
-                string key = owners[i].Key;
-                int dash = key.IndexOf('-');
-
                 var command = new InfoCommand();
-                command.Key = key;
+                command.Command = CommandKey.Parse(owners[i].Key);
                 command.Title = owners[i].Title;
-                command.CommandId = (byte)Rtl8239Catalog.ParseNumber(dash < 0 ? key : key.Substring(0, dash));
-                command.SubCommand = dash < 0 ? (byte)0 : (byte)Rtl8239Catalog.ParseNumber(key.Substring(dash + 1));
                 commands[i] = command;
             }
 
@@ -282,11 +275,11 @@ namespace WpfApp1.Serial
                 values[0] = ResetReasonClearFlag;
             }
 
-            QueryOutcome outcome = await QueryAsync(cmd, options, timeoutMs, values, cancellationToken)
+            ExchangeResult outcome = await QueryAsync(cmd, options, timeoutMs, values, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!outcome.Ok)
-                return Failure(cmd, outcome.Error + EmptyResponseHint(cmd.CommandId, outcome.TimedOut));
+                return Failure(cmd, outcome.Error);
 
             var read = new SingleRead();
             read.Parsed = outcome.Parsed;
@@ -366,7 +359,7 @@ namespace WpfApp1.Serial
                 if (values.Length > 0)
                     values[0] = idx;
 
-                QueryOutcome outcome = await QueryAsync(cmd, options, timeoutMs, values, cancellationToken)
+                ExchangeResult outcome = await QueryAsync(cmd, options, timeoutMs, values, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (!outcome.Ok)
@@ -376,7 +369,7 @@ namespace WpfApp1.Serial
                     // 只留第一条错误——它是根因，后面的多半是它的连带。
                     if (error == null)
                         error = string.Format(CultureInfo.InvariantCulture,
-                            "索引 0x{0:X2} 读取失败：{1}{2}", idx, outcome.Error, EmptyBlockHint(outcome.TimedOut));
+                            "索引 0x{0:X2} 读取失败：{1}", idx, outcome.Error);
                     continue;
                 }
 
@@ -397,118 +390,37 @@ namespace WpfApp1.Serial
             return entry;
         }
 
-        private sealed class QueryOutcome
-        {
-            public bool Ok;
-            public bool TimedOut;
-            public object Parsed;
-            public string Error;
-        }
-
         /// <summary>
-        /// 发一条命令并等它的响应。整对操作持有事务锁，所以不会和轮询、
-        /// 或本面板自己的前一条命令在串口上交错。
+        /// 发一条命令并等它的响应。
+        ///
+        /// 往返本身（取锁 / 发 / 等 / 子命令复核 / 解析）在 <see cref="CommandExchange"/> 里，
+        /// 因为命令组装页的「发送并解析」要走同一套规矩。这里只负责本面板特有的部分：
+        /// 查目录、推进自己的序列号、组装帧。
         /// </summary>
-        private async Task<QueryOutcome> QueryAsync(InfoCommand cmd, SendOptions options, int timeoutMs,
+        private async Task<ExchangeResult> QueryAsync(InfoCommand cmd, SendOptions options, int timeoutMs,
             long[] values, CancellationToken cancellationToken)
         {
             try
             {
                 CommandDef definition = FindCommand(cmd.Key);
                 if (definition == null)
-                    return new QueryOutcome { Ok = false, Error = "命令目录里找不到 " + cmd.Key };
+                    return new ExchangeResult { Ok = false, Error = "命令目录里找不到 " + cmd.Key };
 
                 _sequence = PollingScheduler.NextSequence(_sequence);
                 byte sequence = _sequence;
                 byte[] frame = Rtl8239Catalog.BuildChecked(definition, sequence, values);
 
-                using (SerialTransaction transaction =
-                    await _session.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    await _session.SendAsync(options.For(frame), cancellationToken).ConfigureAwait(false);
-
-                    FrameEvent frameEvent = await _session.WaitForFrameAsync(cmd.CommandId, sequence,
-                        TimeSpan.FromMilliseconds(timeoutMs), cancellationToken).ConfigureAwait(false);
-
-                    string mismatch = DescribeSubCommandMismatch(cmd, frameEvent);
-                    if (mismatch != null)
-                        return new QueryOutcome { Ok = false, Error = mismatch };
-
-                    if (!frameEvent.IsParsed)
-                        return new QueryOutcome
-                        {
-                            Ok = false,
-                            Error = "响应解析失败：" + (frameEvent.ParseError ?? "未知原因"),
-                        };
-
-                    return new QueryOutcome { Ok = true, Parsed = frameEvent.Parsed };
-                }
+                return await CommandExchange.SendAsync(_session, frame, cmd.Command, sequence,
+                    options, timeoutMs, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 throw;      // 取消要中断整块，不能被当成「这一条失败」
             }
-            catch (TimeoutException)
-            {
-                return new QueryOutcome { Ok = false, TimedOut = true, Error = "等待响应超时" };
-            }
             catch (Exception ex)
             {
-                return new QueryOutcome { Ok = false, Error = ex.Message };
+                return new ExchangeResult { Ok = false, Error = ex.Message };
             }
-        }
-
-        /// <summary>
-        /// 0xC0 系的命令只按命令 ID 配对（<see cref="SerialSession.IsSequenceCorrelatable"/> 为 false），
-        /// 所以**任何** 0xC0 帧都能满足那个等待——手工帧的回包、上一次超时之后才到的回包，都可能被认领。
-        /// 这里按子命令再挡一道：宁可这一条明确失败，也不能把别人的数据当成自己的结果显示出来，
-        /// 那正是这块面板最不该犯的错。
-        /// </summary>
-        private static string DescribeSubCommandMismatch(InfoCommand cmd, FrameEvent frameEvent)
-        {
-            if (SerialSession.IsSequenceCorrelatable(cmd.CommandId))
-                return null;        // 别的命令已经按序列号配过对了
-
-            if (frameEvent.Raw == null || frameEvent.Raw.Length < 2 || frameEvent.Raw[1] == cmd.SubCommand)
-                return null;
-
-            return string.Format(CultureInfo.InvariantCulture,
-                "收到的不是 {0} 的响应（子命令 0x{1:X2}，期望 0x{2:X2}）——未采纳，免得把别人的数据当成自己的",
-                cmd.Key, frameEvent.Raw[1], cmd.SubCommand);
-        }
-
-        /// <summary>
-        /// 请求帧里被填成 0xFF 的「保留位」、以及协议规定空缺处填 0xFF 的响应字段，
-        /// 会让**某些「全空」的响应与请求逐字节相同**——SEQ 原样回显、校验和随之相同，
-        /// 于是被 <see cref="SerialSession"/> 的自回显抑制当成回显丢掉，表现为超时。
-        ///
-        /// 后果是：这些命令的「设备上什么都没有」和「链路断了」**在观测上无法区分**。
-        /// 所以超时时必须把这个歧义说出来，不能让用户以为一定是链路问题。
-        /// </summary>
-        private static string EmptyResponseHint(byte commandId, bool timedOut)
-        {
-            if (!timedOut)
-                return string.Empty;
-
-            switch (commandId)
-            {
-                case 0x50:
-                    return "（12 个槽位都没有芯片应答时，响应与请求逐字节相同，会被当成回显丢掉——"
-                         + "所以「超时」本身就可能是「一颗芯片都没有」，不一定是链路断了）";
-                case 0xC0:
-                    return "（设备从未保存过配置时，响应与请求逐字节相同，会被当成回显丢掉——"
-                         + "所以「超时」本身就可能是「没有配置版本」，不一定是链路断了）";
-                case 0x4C:
-                    return "（该块可能整个是空的——空块的响应与请求逐字节相同，会被当成回显丢掉；"
-                         + "拿 0x50 的芯片数核对一下）";
-                default:
-                    return string.Empty;
-            }
-        }
-
-        private static string EmptyBlockHint(bool timedOut)
-        {
-            return EmptyResponseHint(0x4C, timedOut);
         }
 
         private static CommandDef FindCommand(string key)
