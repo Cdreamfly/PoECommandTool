@@ -352,7 +352,7 @@
                 <!-- 曲线 -->
                 <Grid Grid.Row="4" Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="330"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
@@ -393,6 +393,7 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0" Text="时间窗" VerticalAlignment="Center"/>
@@ -405,6 +406,9 @@
                             <Button Grid.Column="3" x:Name="ClearChartButton" Content="清空" Width="48" Height="26"
                                     Margin="6,0,0,0" Click="ClearChart_Click"
                                     ToolTip="清空所有曲线，重新开始采集"/>
+                            <Button Grid.Column="4" x:Name="PauseChartButton" Content="暂停" Width="48" Height="26"
+                                    Margin="6,0,0,0" Click="PauseChart_Click"
+                                    ToolTip="暂停刷新曲线（采样不停，数据照常进缓冲）。想看清某一屏时用它，免得画面一直在走。再点一次继续。"/>
                         </Grid>
                         <WrapPanel Grid.Row="4" Margin="0,6,0,0">
                             <TextBlock Text="纵轴" VerticalAlignment="Center"/>
@@ -419,7 +423,7 @@
                             <TextBlock x:Name="ZoomText" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="#888888"/>
                         </WrapPanel>
                         <TextBlock Grid.Row="5" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#888888"
-                                   Text="滚轮缩放纵轴；单击图例选中曲线（加粗），双击看详细统计。"/>
+                                   Text="滚轮缩放纵轴；单击图例选中曲线，双击看详情。"/>
                     </Grid>
 
                     <Border Grid.Column="1" Grid.Row="0" BorderBrush="#DDDDDD" BorderThickness="1" Margin="10,0,0,0">

@@ -652,12 +652,43 @@ namespace WpfApp1
             AppendLog("已清空曲线。");
         }
 
+        /// <summary>
+        /// 暂停刷新曲线。**采样不停**——数据照常进缓冲，只是画面不动，
+        /// 否则"暂停"会把暂停期间的数据一起丢掉，那是个陷阱不是暂停。
+        /// </summary>
+        private bool _chartPaused;
+
+        private void PauseChart_Click(object sender, RoutedEventArgs e)
+        {
+            _chartPaused = !_chartPaused;
+
+            if (PauseChartButton != null)
+                PauseChartButton.Content = _chartPaused ? "继续" : "暂停";
+
+            if (_chartPaused)
+            {
+                AppendLog("曲线已暂停刷新（采样继续，数据仍在记录）。");
+                return;
+            }
+
+            // 继续时立刻把积压的数据画出来，不用等下一个 tick
+            _hasNewSamples = true;
+            AppendLog("曲线已继续刷新。");
+        }
+
         private void ChartTimer_Tick(object sender, EventArgs e)
         {
             if (!_hasNewSamples)
                 return;
 
             _hasNewSamples = false;
+
+            // 暂停期间把「有新样本」的标记照常消化掉，但不重画：数据已经在缓冲里，
+            // 继续时一次全画出来。图例上的数值也一并冻住，否则会出现
+            // 「数字在跳、曲线不动」的怪状态。
+            if (_chartPaused)
+                return;
+
             UpdateLegendValues();
             Plot.InvalidateLayout();
         }
