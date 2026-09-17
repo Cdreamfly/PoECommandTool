@@ -340,6 +340,7 @@ namespace WpfApp1
                     //    已经关掉的端口上一直等到超时。
                     CancelDeviceInfo();
                     CancelCommandSend();
+                    CancelDownload();
                     _reconnectWanted = false;   // 是用户主动关的，别自动连回来
 
                     // ② 状态同步改完再 await。这个处理器现在是 async 的，await 期间按钮还能点，
@@ -444,6 +445,7 @@ namespace WpfApp1
             RefreshPortsButton.IsEnabled = canEdit;
             UpdateDeviceInfoUi();
             UpdateCommandSendUi();
+            UpdateDownloadUi();
         }
 
         // =================================================================
@@ -593,6 +595,7 @@ namespace WpfApp1
             CancelCommandSend();
             await AwaitDeviceInfoStoppedAsync();
             await AwaitCommandSendStoppedAsync();
+            await AwaitDownloadStoppedAsync();
 
             StopPolling(null);
             if (_pollTask != null)

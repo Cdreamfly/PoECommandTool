@@ -139,6 +139,16 @@ namespace WpfApp1.Serial
         public ResponseLineExtractor Extractor { get; private set; }
 
         /// <summary>
+        /// 固件下载期间置为 true：这时设备只回 4 字节无校验和的 Loader 应答。
+        /// 下载结束后**记得置回 false**，否则正常帧会被当成应答拆散。
+        /// </summary>
+        public bool LoaderAckMode
+        {
+            get { return _scanner.LoaderAckMode; }
+            set { _scanner.LoaderAckMode = value; }
+        }
+
+        /// <summary>
         /// 接收方式。文本模式走「按行拆包 + 识别规则」，裸帧模式走字节流同步。
         /// 应当与发送方式配套：调试控制台（文本命令）配 <see cref="ReceiveMode.TextLines"/>，
         /// 串口直连（裸帧）配 <see cref="ReceiveMode.RawFrames"/>。

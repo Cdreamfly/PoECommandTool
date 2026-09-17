@@ -101,6 +101,8 @@ namespace Rtl8239Verify
             SeriesGrowthTests();
             ThresholdSetTests();
             EventMarkerTests();
+            LoaderAckScanTests();
+            await DownloadRunnerTests();
 
             Console.WriteLine();
             Console.WriteLine(_failed == 0

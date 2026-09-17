@@ -155,6 +155,10 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="MainWindow.Download.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Serial\HexUtil.cs" />
     <Compile Include="Serial\LineAssembler.cs" />
     <Compile Include="Serial\ISerialTransport.cs" />
@@ -165,6 +169,7 @@
     <Compile Include="Serial\CommandKey.cs" />
     <Compile Include="Serial\CommandExchange.cs" />
     <Compile Include="Serial\CommLog.cs" />
+    <Compile Include="Serial\DownloadRunner.cs" />
     <Compile Include="Serial\LogTag.cs" />
     <Compile Include="Serial\ResponseEchoCheck.cs" />
     <Compile Include="Serial\ResultFormatter.cs" />

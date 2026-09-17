@@ -14,6 +14,9 @@ namespace WpfApp1.Serial
     {
         public const int FrameLength = 12;
 
+        /// <summary>Loader 下载应答的长度（无校验和，见 <see cref="Rtl8239ResponseParser.LoaderAckLength"/>）。</summary>
+        public const int LoaderAckLength = 4;
+
         private readonly List<byte> _buffer = new List<byte>(FrameLength * 2);
 
         public RawFrameScanner()
@@ -23,6 +26,18 @@ namespace WpfApp1.Serial
 
         /// <summary>缓冲上限；超过说明一直同步不上，整段丢弃防止无限增长。</summary>
         public int MaxBufferLength { get; set; }
+
+        /// <summary>
+        /// 固件下载期间置为 true：设备这时只回 **4 字节、无校验和**的 Loader 应答
+        /// （`0xC0|sub|偏移低|偏移高` 或 `0xCA|seq|偏移低|偏移高`），不会再回 12 字节帧。
+        ///
+        /// 做成**排他模式**而不是「两种都试」：0xC0 开头的 12 字节帧和 4 字节应答前缀相同，
+        /// 同时认两种只会让误同步变成常态。下载与正常通信本来也不会同时进行。
+        ///
+        /// 应答没有校验和，所以**这里同步出来的帧不能当作可信**——真正的校验是调用方
+        /// 拿回显的镜像偏移跟刚发出去的那一帧对（见 DownloadRunner）。
+        /// </summary>
+        public bool LoaderAckMode { get; set; }
 
         /// <summary>被丢弃的字节数（同步失败时的诊断依据）。</summary>
         public int DroppedByteCount { get; private set; }
@@ -38,6 +53,12 @@ namespace WpfApp1.Serial
 
             for (int i = 0; i < count; i++)
                 _buffer.Add(data[i]);
+
+            if (LoaderAckMode)
+            {
+                AppendShortAcks(frames);
+                return frames;
+            }
 
             int consumed = 0;
             while (_buffer.Count - consumed >= FrameLength)
@@ -80,6 +101,43 @@ namespace WpfApp1.Serial
             }
 
             return frames;
+        }
+
+        /// <summary>4 字节应答的同步：没有校验和，只能认命令 ID 前缀。</summary>
+        private void AppendShortAcks(List<byte[]> frames)
+        {
+            int start = 0;
+            while (_buffer.Count - start >= LoaderAckLength)
+            {
+                if (!IsShortAckId(_buffer[start]))
+                {
+                    start++;
+                    DroppedByteCount++;
+                    continue;
+                }
+
+                var frame = new byte[LoaderAckLength];
+                for (int k = 0; k < LoaderAckLength; k++)
+                    frame[k] = _buffer[start + k];
+                frames.Add(frame);
+
+                start += LoaderAckLength;
+            }
+
+            if (start > 0)
+                _buffer.RemoveRange(0, start);
+
+            if (_buffer.Count > MaxBufferLength)
+            {
+                DroppedByteCount += _buffer.Count;
+                _buffer.Clear();
+            }
+        }
+
+        /// <summary>可能是 Loader 应答的命令 ID。</summary>
+        public static bool IsShortAckId(byte id)
+        {
+            return id == 0xC0 || id == 0xCA;
         }
 
         public void Reset()

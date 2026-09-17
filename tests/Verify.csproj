@@ -35,6 +35,8 @@
     <Compile Include="SeriesGrowthTests.cs" />
     <Compile Include="ThresholdSetTests.cs" />
     <Compile Include="EventMarkerTests.cs" />
+    <Compile Include="LoaderAckScanTests.cs" />
+    <Compile Include="DownloadRunnerTests.cs" />
     <Compile Include="..\Chart\*.cs"
              Exclude="..\Chart\ChartPlotElement.cs" />
     <Compile Include="..\Rtl8239Catalog.cs" />

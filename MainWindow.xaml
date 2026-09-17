@@ -192,8 +192,14 @@
                 </DockPanel>
 
                 <DockPanel Grid.Row="2" Margin="0,10,0,0">
+                    <Button x:Name="DownloadToDeviceButton" DockPanel.Dock="Right" Content="下载到设备"
+                            Width="110" Height="26" Margin="8,0,0,0" IsEnabled="False"
+                            Click="DownloadToDevice_Click"
+                            ToolTip="把上面这些帧真的发给设备（串口需打开、且「串口读写」页要处于「裸帧直连」）。途中失败即停，不会继续往后写。本工具不会替你跳转 Loader。"/>
                     <Button x:Name="GenDlButton" DockPanel.Dock="Right" Content="生成下载帧"
                             Width="130" Height="26" Click="GenDownload_Click"/>
+                    <TextBlock x:Name="DlStatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="#888888"/>
                     <TextBlock x:Name="DlHint" TextWrapping="Wrap" LineHeight="20" Foreground="#555555"
                                VerticalAlignment="Center"/>
                 </DockPanel>
