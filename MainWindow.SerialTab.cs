@@ -153,9 +153,10 @@ namespace WpfApp1
             {
                 if (_session.IsOpen)
                 {
-                    // ① 先同步发取消：不等它，但必须发在关串口之前——否则读取会在
+                    // ① 先同步发取消：不等它，但必须发在关串口之前——否则读取/发送会在
                     //    已经关掉的端口上一直等到超时。
                     CancelDeviceInfo();
+                    CancelCommandSend();
 
                     // ② 状态同步改完再 await。这个处理器现在是 async 的，await 期间按钮还能点，
                     //    那时 IsOpen 若还是 true，下一次点击会被误判成「再关一次」而被吞掉。
@@ -164,9 +165,10 @@ namespace WpfApp1
                     AppendLog("已关闭 " + _portSettings.Describe());
                     UpdateSerialUi();
 
-                    // ③ 最后才等它退干净：它的收尾会把「已取消」写进状态栏，
+                    // ③ 最后才等它们退干净：它们的收尾会把「已取消」写进状态栏，
                     //    不能让它落到下一次连接上。取消早已发出，不会拖满超时。
                     await AwaitDeviceInfoStoppedAsync();
+                    await AwaitCommandSendStoppedAsync();
                     return;
                 }
 
@@ -241,6 +243,15 @@ namespace WpfApp1
             return ModeRawRadio != null && ModeRawRadio.IsChecked == true;
         }
 
+        /// <summary>
+        /// 单条命令等回包的时长。跟轮询用同一个设置，用户调一处即可——
+        /// 设备信息面板与命令组装页的「发送并解析」都用它。
+        /// </summary>
+        private int ResponseTimeoutMs()
+        {
+            return (int)ParseLong(TimeoutBox.Text, 1500, 20, 60000);
+        }
+
         private void UpdateSerialUi()
         {
             bool open = _session != null && _session.IsOpen;
@@ -256,6 +267,7 @@ namespace WpfApp1
             StopBitsCombo.IsEnabled = canEdit;
             RefreshPortsButton.IsEnabled = canEdit;
             UpdateDeviceInfoUi();
+            UpdateCommandSendUi();
         }
 
         // =================================================================
@@ -397,9 +409,16 @@ namespace WpfApp1
             if (_chartTimer != null)
                 _chartTimer.Stop();
 
-            // 先掐设备信息读取，再停轮询：读取可能正持着事务锁在等回包，
+            // 先掐设备信息读取与命令组装页的发送，再停轮询：它们可能正持着事务锁在等回包，
             // 倒过来的话轮询取消后会卡在这把锁上多等一个超时。
-            await ShutdownDeviceInfoAsync();
+            CancelDeviceInfo();
+            CancelCommandSend();
+            await AwaitDeviceInfoStoppedAsync();
+            await AwaitCommandSendStoppedAsync();
+
+            // 独立日志窗口：不指望 WPF 的 owner 级联。App 用的是默认的
+            // ShutdownMode.OnLastWindowClose，漏一个窗口就是进程不退的隐形残留。
+            CloseCommLogWindow();
 
             StopPolling(null);
             if (_pollTask != null)

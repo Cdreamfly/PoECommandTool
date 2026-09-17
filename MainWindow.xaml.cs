@@ -163,6 +163,95 @@ namespace WpfApp1
             rList.Checked += (s, e2) => { _listMode = true; _singleRow.Visibility = Visibility.Collapsed; _listRow.Visibility = Visibility.Visible; };
         }
 
+        /// <summary>一条组装好的命令：端口、实际用的序列号、帧，以及「生成命令」页面上那一行的原文。</summary>
+        private sealed class PlannedFrame
+        {
+            public bool HasPort;
+            public long Port;
+            public byte Sequence;
+            public byte[] Frame;
+            public string Line;
+        }
+
+        /// <summary>
+        /// 把当前界面上的参数组装成帧。越界与非法输入在这里抛，由调用方决定怎么呈现。
+        ///
+        /// 「生成命令」与「发送并解析」都走这一个方法，两者的帧因此**必然逐字节一致**——
+        /// 这也是「原有功能一行不变」的根据。
+        ///
+        /// <paramref name="stepSequence"/>：多帧时序列号是否逐帧递增。
+        /// 「生成命令」传 false（所有帧同一个序列号，与改动前完全一致）；
+        /// 发送时必须传 true——回包只按「命令号 + Byte1」配对，N 帧同号的话，
+        /// 第 3 帧迟到的回包会被第 5 帧的等待认领，把别人的数据显示成自己的。
+        /// </summary>
+        private List<PlannedFrame> BuildFramePlan(byte firstSequence, bool stepSequence)
+        {
+            var ports = new List<long>();
+            bool hasPort = _current.Fields.Any(f => f.Kind == FieldKind.Port);
+            if (hasPort)
+            {
+                const long MaxPort = 0x2F; // 端口 0-47
+                if (_listMode)
+                {
+                    long start = Rtl8239Catalog.ParseNumber(_portStartBox.Text);
+                    long end = Rtl8239Catalog.ParseNumber(_portEndBox.Text);
+                    if (start < 0 || start > MaxPort || end < 0 || end > MaxPort)
+                        throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
+                    if (end < start) throw new InvalidOperationException("结束端口不能小于起始端口。");
+                    for (long p = start; p <= end; p++) ports.Add(p);
+                }
+                else
+                {
+                    long port = Rtl8239Catalog.ParseNumber(_portSingleBox.Text);
+                    if (port < 0 || port > MaxPort)
+                        throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
+                    ports.Add(port);
+                }
+            }
+            else
+            {
+                ports.Add(0);   // 无端口字段的命令只生成一条
+            }
+
+            var plan = new List<PlannedFrame>();
+            byte sequence = firstSequence;
+            for (int index = 0; index < ports.Count; index++)
+            {
+                long port = ports[index];
+                if (index > 0 && stepSequence)
+                    sequence = Serial.PollingScheduler.NextSequence(sequence);
+
+                var values = new long[_current.Fields.Length];
+                int fixedIdx = 0;
+                for (int f = 0; f < _current.Fields.Length; f++)
+                {
+                    FieldDef fd = _current.Fields[f];
+                    values[f] = fd.Kind == FieldKind.Port
+                        ? port
+                        : Rtl8239Catalog.ParseNumber(_fixedBoxes[fixedIdx++].Text);
+                }
+
+                // BuildChecked 在组装前按 FieldKind 校验每个值：越界必须在这里被拦下，
+                // 因为 Build lambda 里的 (byte)/(int) 转换会静默截断
+                //（300 → 0x2C，70000 → 446.4W），那是会写进真实硬件配置的错误值。
+                byte[] frame = Rtl8239Catalog.BuildChecked(_current, sequence, values);
+
+                var planned = new PlannedFrame();
+                planned.HasPort = hasPort;
+                planned.Port = port;
+                planned.Sequence = sequence;
+                planned.Frame = frame;
+                planned.Line = hasPort
+                    ? string.Format("端口 0x{0:X2}:  {1}  ({2} 字节)",
+                        port, Rtl8239CommandBuilder.ToHex(frame), frame.Length)
+                    : string.Format("{0}  ({1} 字节)",
+                        Rtl8239CommandBuilder.ToHex(frame), frame.Length);
+                plan.Add(planned);
+            }
+
+            return plan;
+        }
+
         private void Generate_Click(object sender, RoutedEventArgs e)
         {
             if (_current == null)
@@ -175,58 +264,13 @@ namespace WpfApp1
             {
                 // 序列号会被塞进帧的 Byte1，越界必须在这里拦下（300 → 0x2C 会让回包永远对不上）
                 byte seq = Rtl8239Catalog.ParseByte(SeqText.Text, "序列号");
-
-                var ports = new List<long>();
-                bool hasPort = _current.Fields.Any(f => f.Kind == FieldKind.Port);
-                if (hasPort)
-                {
-                    const long MaxPort = 0x2F; // 端口 0-47
-                    if (_listMode)
-                    {
-                        long start = Rtl8239Catalog.ParseNumber(_portStartBox.Text);
-                        long end = Rtl8239Catalog.ParseNumber(_portEndBox.Text);
-                        if (start < 0 || start > MaxPort || end < 0 || end > MaxPort)
-                            throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
-                        if (end < start) throw new InvalidOperationException("结束端口不能小于起始端口。");
-                        for (long p = start; p <= end; p++) ports.Add(p);
-                    }
-                    else
-                    {
-                        long port = Rtl8239Catalog.ParseNumber(_portSingleBox.Text);
-                        if (port < 0 || port > MaxPort)
-                            throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
-                        ports.Add(port);
-                    }
-                }
-                else
-                {
-                    ports.Add(0);   // 无端口字段的命令只生成一条
-                }
+                List<PlannedFrame> plan = BuildFramePlan(seq, false);
 
                 var sb = new StringBuilder();
-                foreach (long port in ports)
-                {
-                    var values = new long[_current.Fields.Length];
-                    int fixedIdx = 0;
-                    for (int f = 0; f < _current.Fields.Length; f++)
-                    {
-                        FieldDef fd = _current.Fields[f];
-                        values[f] = fd.Kind == FieldKind.Port
-                            ? port
-                            : Rtl8239Catalog.ParseNumber(_fixedBoxes[fixedIdx++].Text);
-                    }
+                for (int i = 0; i < plan.Count; i++)
+                    sb.AppendLine(plan[i].Line);
 
-                    // BuildChecked 在组装前按 FieldKind 校验每个值：越界必须在这里被拦下，
-                    // 因为 Build lambda 里的 (byte)/(int) 转换会静默截断
-                    //（300 → 0x2C，70000 → 446.4W），那是会写进真实硬件配置的错误值。
-                    byte[] frame = Rtl8239Catalog.BuildChecked(_current, seq, values);
-                    if (hasPort)
-                        sb.AppendLine($"端口 0x{port:X2}:  {Rtl8239CommandBuilder.ToHex(frame)}  ({frame.Length} 字节)");
-                    else
-                        sb.AppendLine($"{Rtl8239CommandBuilder.ToHex(frame)}  ({frame.Length} 字节)");
-                }
-
-                sb.AppendLine($"—— 共生成 {ports.Count} 条命令 ——");
+                sb.AppendLine($"—— 共生成 {plan.Count} 条命令 ——");
                 ResultBox.Text = sb.ToString();
             }
             catch (Exception ex)

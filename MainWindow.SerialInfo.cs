@@ -88,7 +88,7 @@ namespace WpfApp1
                 _serialOptions.LineEnding = SelectedLineEnding();
 
                 DeviceInfoResult result = await _deviceInfoReader.ReadAllAsync(
-                    _serialOptions, DeviceInfoTimeoutMs(), _deviceInfoCts.Token);
+                    _serialOptions, ResponseTimeoutMs(), _deviceInfoCts.Token);
 
                 RenderDeviceInfo(result);
                 ShowResult(result);
@@ -146,12 +146,6 @@ namespace WpfApp1
             DeviceInfoStatusText.Foreground = Brushes.Firebrick;
             DeviceInfoStatusText.Text = "读取失败：" + ex.Message;
             AppendLog("[工具] 设备信息读取失败：" + ex.Message);
-        }
-
-        /// <summary>该等多久：跟轮询用同一个超时设置，用户调一处即可。</summary>
-        private int DeviceInfoTimeoutMs()
-        {
-            return (int)ParseLong(TimeoutBox.Text, 1500, 20, 60000);
         }
 
         /// <summary>

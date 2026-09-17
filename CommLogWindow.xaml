@@ -1,0 +1,22 @@
+<Window x:Class="WpfApp1.CommLogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="通讯日志" Height="520" Width="820"
+        Icon="POE.ico"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="8">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Foreground="#888888"
+                       Text="与「串口读写」页底部那个日志框是同一份内容，切到任何页签都能看。"/>
+            <CheckBox x:Name="AutoScrollCheck" DockPanel.Dock="Right" Content="自动滚动" IsChecked="True"
+                      VerticalAlignment="Center" Margin="12,0,0,0"/>
+        </DockPanel>
+
+        <GroupBox Padding="6"
+                  Header="收发日志（[设备] 串口原样输出 · [发送] 工具发出 · [识别] 识别出的帧 · [解析] 解析结果 · [工具] 工具提示）">
+            <TextBox x:Name="LogBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                     TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"/>
+        </GroupBox>
+    </DockPanel>
+</Window>

@@ -765,6 +765,61 @@ namespace WpfApp1
                 AppendLogCore(lines[i]);
 
             FlushLogText();
+            SyncCommLogWindow();
+        }
+
+        // =================================================================
+        //  独立日志窗口（无模式）
+        // =================================================================
+
+        private CommLogWindow _commLogWindow;
+
+        private void ShowCommLog_Click(object sender, RoutedEventArgs e)
+        {
+            if (_commLogWindow != null)
+            {
+                // 已经开着就把它拿到前面来，不另开一个
+                _commLogWindow.Activate();
+                return;
+            }
+
+            var window = new CommLogWindow { Owner = this };
+            window.Closed += delegate { _commLogWindow = null; };
+            _commLogWindow = window;
+
+            window.SyncFrom(_log);      // 先把历史补上；它自己的行号从 0 起，会走整体重建
+            window.Show();              // 无模式：开着它还能继续用主窗口
+        }
+
+        /// <summary>把日志增量推给独立窗口。日志队列只由本窗口的定时器消费，别让第二个消费者去排空它。</summary>
+        private void SyncCommLogWindow()
+        {
+            CommLogWindow window = _commLogWindow;
+            if (window == null)
+                return;
+
+            window.SyncFrom(_log);
+        }
+
+        /// <summary>
+        /// 关窗口时显式关掉它。App 用的是默认的 ShutdownMode.OnLastWindowClose，
+        /// 光靠 Owner 级联不够保险——漏掉就是进程不退的隐形残留。
+        /// </summary>
+        private void CloseCommLogWindow()
+        {
+            CommLogWindow window = _commLogWindow;
+            if (window == null)
+                return;
+
+            _commLogWindow = null;
+            try
+            {
+                window.Close();
+            }
+            catch (Exception)
+            {
+                // 关闭流程里不往外抛
+            }
         }
 
         /// <summary>

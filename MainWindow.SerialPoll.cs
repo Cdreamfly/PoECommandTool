@@ -337,7 +337,7 @@ namespace WpfApp1
 
         /// <summary>
         /// 「开始轮询」的可用性。互锁必须是**双向**的：只挡住「轮询时点更新」还不够，
-        /// 反过来的「读取时点开始轮询」会让轮询一上来就卡在事务锁上，
+        /// 反过来的「读取/发送时点开始轮询」会让轮询一上来就卡在事务锁上，
         /// 界面停在「轮询中… 已发 0 / 成功 0」，既不报错也看不出在等什么。
         /// </summary>
         private void UpdatePollStartButton()
@@ -345,7 +345,7 @@ namespace WpfApp1
             if (StartPollButton == null)
                 return;
 
-            StartPollButton.IsEnabled = !_pollingActive && !_deviceInfoBusy;
+            StartPollButton.IsEnabled = !_pollingActive && !_deviceInfoBusy && !_sendParseBusy;
         }
 
         private void OnPollRequestSent(PollRequest request)
