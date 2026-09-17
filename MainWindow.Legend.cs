@@ -14,12 +14,6 @@ using WpfApp1.Serial;
 namespace WpfApp1
 {
     /// <summary>
-    /// 「串口读写」页的采样、曲线与日志部分。
-    ///
-    /// 线程约定：读线程（SerialSession 的回调）只往队列里塞东西；所有对曲线缓冲、图例控件、
-    /// 日志框的操作都发生在两个 DispatcherTimer 的 Tick 里，也就是 UI 线程上。
-    /// </summary>
-    /// <summary>
     /// 「串口读写」页的图例与曲线管理。
     ///
     /// 从 MainWindow.SerialChart.cs 里拆出来的（原文件超了 800 行的软上限）：

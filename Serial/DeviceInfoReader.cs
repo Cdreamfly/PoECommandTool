@@ -148,10 +148,10 @@ namespace WpfApp1.Serial
                 return string.Empty;
 
             var text = new StringBuilder();
-            text.AppendLine("设备信息　" + result.Summary);
+            text.Append("设备信息　" + result.Summary).Append('\n');
             if (!string.IsNullOrEmpty(timestamp))
-                text.AppendLine("最后更新 " + timestamp);
-            text.AppendLine();
+                text.Append("最后更新 " + timestamp).Append('\n');
+            text.Append('\n');
 
             for (int i = 0; i < result.Entries.Count; i++)
             {
@@ -159,16 +159,16 @@ namespace WpfApp1.Serial
                 text.Append(entry.CommandKey).Append("  ").Append(entry.Title);
                 if (!entry.Ok)
                     text.Append("（读取失败）");
-                text.AppendLine();
+                text.Append('\n');
 
                 for (int f = 0; f < entry.Fields.Count; f++)
                     text.Append("  ").Append(entry.Fields[f].Label)
-                        .Append(": ").Append(entry.Fields[f].Value).AppendLine();
+                        .Append(": ").Append(entry.Fields[f].Value).Append('\n');
 
                 if (!entry.Ok && !string.IsNullOrEmpty(entry.Error))
-                    text.Append("  错误: ").AppendLine(entry.Error);
+                    text.Append("  错误: ").Append(entry.Error).Append('\n');
 
-                text.AppendLine();
+                text.Append('\n');
             }
 
             return text.ToString().TrimEnd();

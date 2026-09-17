@@ -14,12 +14,6 @@ using WpfApp1.Serial;
 namespace WpfApp1
 {
     /// <summary>
-    /// 「串口读写」页的采样、曲线与日志部分。
-    ///
-    /// 线程约定：读线程（SerialSession 的回调）只往队列里塞东西；所有对曲线缓冲、图例控件、
-    /// 日志框的操作都发生在两个 DispatcherTimer 的 Tick 里，也就是 UI 线程上。
-    /// </summary>
-    /// <summary>
     /// 「通讯日志」页签：日志存储的接线、按类别筛选、复制 / 存盘 / 清空，
     /// 以及串口页底部那个日志框的增量渲染。
     ///

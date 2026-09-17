@@ -28,7 +28,7 @@ namespace WpfApp1.Serial
             string pad = new string(' ', indent);
             if (obj == null)
             {
-                sb.AppendLine(pad + "null");
+                sb.Append(pad + "null").Append('\n');
                 return;
             }
 
@@ -41,18 +41,18 @@ namespace WpfApp1.Serial
                     object item = array.GetValue(i);
                     if (item == null)
                     {
-                        sb.AppendLine(pad + "[" + i + "] null");
+                        sb.Append(pad + "[" + i + "] null").Append('\n');
                         continue;
                     }
 
                     if (IsSimpleValue(item))
                     {
-                        sb.AppendLine(pad + "[" + i + "] " + item);
+                        sb.Append(pad + "[" + i + "] " + item).Append('\n');
                     }
                     else
                     {
                         // 嵌套的数组 / 结构体：另起一行递归展开，否则这里只能打印类型名
-                        sb.AppendLine(pad + "[" + i + "]");
+                        sb.Append(pad + "[" + i + "]").Append('\n');
                         Append(sb, item, indent + 4);
                     }
                 }
@@ -61,36 +61,36 @@ namespace WpfApp1.Serial
 
             if (type.IsPrimitive || obj is string || obj is bool)
             {
-                sb.AppendLine(pad + obj);
+                sb.Append(pad + obj).Append('\n');
                 return;
             }
 
             if (type.IsEnum)
             {
-                sb.AppendLine(pad + type.Name + "." + obj);
+                sb.Append(pad + type.Name + "." + obj).Append('\n');
                 return;
             }
 
             // 结构体：按公共字段展开
-            sb.AppendLine(pad + type.Name + ":");
+            sb.Append(pad + type.Name + ":").Append('\n');
             foreach (FieldInfo field in type.GetFields())
             {
                 object value = field.GetValue(obj);
                 sb.Append(pad + "  " + field.Name + ": ");
                 if (value == null)
                 {
-                    sb.AppendLine("null");
+                    sb.Append("null").Append('\n');
                     continue;
                 }
 
                 if (IsSimpleValue(value))
                 {
-                    sb.AppendLine(value.ToString());
+                    sb.Append(value.ToString()).Append('\n');
                 }
                 else
                 {
                     // 数组 / 嵌套结构体：另起一行递归展开，否则这里只能打印类型名
-                    sb.AppendLine();
+                    sb.Append('\n');
                     Append(sb, value, indent + 4);
                 }
             }

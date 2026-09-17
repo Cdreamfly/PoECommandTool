@@ -25,9 +25,8 @@ namespace WpfApp1
     public partial class MainWindow
     {
         private DownloadRunner _downloadRunner;
-        private CancellationTokenSource _downloadCts;
-        private Task _downloadTask;
-        private bool _downloadBusy;
+        /// <summary>这一块的生命周期（忙标志 / 取消源 / 任务）。见 <see cref="CancelableOperation"/>。</summary>
+        private readonly CancelableOperation _download = new CancelableOperation();
 
         // =================================================================
         //  触发
@@ -35,9 +34,9 @@ namespace WpfApp1
 
         private async void DownloadToDevice_Click(object sender, RoutedEventArgs e)
         {
-            if (_downloadBusy)
+            if (_download.IsBusy)
             {
-                CancelDownload();
+                _download.Cancel();
                 return;
             }
 
@@ -47,19 +46,19 @@ namespace WpfApp1
         /// <summary>发起一次烧录；已有在下时直接返回那一笔。</summary>
         private Task StartDownloadToDevice()
         {
-            if (_downloadBusy && _downloadTask != null)
-                return _downloadTask;
+            if (_download.IsBusy && _download.CurrentTask != null)
+                return _download.CurrentTask;
 
-            _downloadTask = RunDownloadAsync();
-            return _downloadTask;
+            _download.CurrentTask = RunDownloadAsync();
+            return _download.CurrentTask;
         }
 
         private async Task RunDownloadAsync()
         {
-            if (_downloadBusy)
+            if (_download.IsBusy)
                 return;
 
-            if (_session == null || !_session.IsOpen)
+            if (!CanSend())
             {
                 DlStatusText.Foreground = Brushes.Firebrick;
                 DlStatusText.Text = "串口未打开——先到「串口读写」页打开串口。";
@@ -97,8 +96,7 @@ namespace WpfApp1
             if (!ConfirmFlash(frames, mode))
                 return;
 
-            _downloadBusy = true;
-            _downloadCts = new CancellationTokenSource();
+            _download.TryBegin();
             UpdateDownloadUi();
 
             _downloadRunner = new DownloadRunner(_session);
@@ -114,7 +112,7 @@ namespace WpfApp1
                     frames.Count, mode == DownloadMode.Firmware ? "Firmware" : "App"));
 
                 DownloadResult result = await _downloadRunner.RunAsync(
-                    frames, options, ResponseTimeoutMs(), 2, _downloadCts.Token);
+                    frames, options, ResponseTimeoutMs(), 2, _download.Token);
 
                 if (result.Ok)
                 {
@@ -144,13 +142,7 @@ namespace WpfApp1
             }
             finally
             {
-                _downloadBusy = false;
-
-                if (_downloadCts != null)
-                {
-                    _downloadCts.Dispose();
-                    _downloadCts = null;
-                }
+                _download.Finish();
 
                 UpdateDownloadUi();
             }
@@ -200,7 +192,7 @@ namespace WpfApp1
             {
                 Dispatcher.Invoke(delegate
                 {
-                    if (!_downloadBusy)
+                    if (!_download.IsBusy)
                         return;
 
                     DlStatusText.Foreground = Gray;
@@ -218,7 +210,7 @@ namespace WpfApp1
             if (DownloadToDeviceButton == null)
                 return;
 
-            if (_downloadBusy)
+            if (_download.IsBusy)
             {
                 DownloadToDeviceButton.Content = "取消";
                 DownloadToDeviceButton.IsEnabled = true;
@@ -226,31 +218,8 @@ namespace WpfApp1
             }
 
             DownloadToDeviceButton.Content = "下载到设备";
-            DownloadToDeviceButton.IsEnabled = _session != null && _session.IsOpen;
+            DownloadToDeviceButton.IsEnabled = CanSend();
         }
 
-        private void CancelDownload()
-        {
-            CancellationTokenSource cts = _downloadCts;
-            if (cts != null)
-                cts.Cancel();
-        }
-
-        /// <summary>等下载退干净（异常不外抛），带超时。关串口 / 关窗口时用。</summary>
-        private async Task AwaitDownloadStoppedAsync()
-        {
-            Task task = _downloadTask;
-            if (task == null)
-                return;
-
-            try
-            {
-                await Task.WhenAny(task, Task.Delay(DeviceInfoStopTimeoutMs));
-            }
-            catch (Exception)
-            {
-                // 关闭流程里不往外抛
-            }
-        }
     }
 }

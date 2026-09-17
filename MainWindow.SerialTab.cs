@@ -20,6 +20,12 @@ namespace WpfApp1
     /// </summary>
     public partial class MainWindow
     {
+        /// <summary>
+        /// 等后台操作退出的上限。与 SerialSession 等读循环退出用的 1000ms 是同一个思路：
+        /// 卡住的驱动写入是 Cancel 掐不断的，不能无限等下去。
+        /// </summary>
+        private const int BackgroundStopTimeoutMs = 1500;
+
         private SerialSession _session;
         private SendOptions _serialOptions;
         private SerialPortSettings _portSettings;
@@ -100,6 +106,19 @@ namespace WpfApp1
 
             WindowCombo.ItemsSource = WindowLabels;
             WindowCombo.SelectedIndex = 2;      // 1 分钟
+        }
+
+        /// <summary>
+        /// 串口能不能用：会话已建好、且端口开着。
+        ///
+        /// 单独一个方法而不是到处写 `_session == null || !_session.IsOpen`：
+        /// 那句话原先在 5 个文件里出现 9 次，改一次「什么叫打开」要动五个地方。
+        /// 注意 <see cref="SerialSession.IsOpen"/> 本身是会话自己记的——net48 上拔线之后
+        /// `SerialPort.IsOpen` 经常还是 true，不能信它。
+        /// </summary>
+        private bool CanSend()
+        {
+            return _session != null && _session.IsOpen;
         }
 
         private void RefreshPortList()
@@ -338,9 +357,9 @@ namespace WpfApp1
                 {
                     // ① 先同步发取消：不等它，但必须发在关串口之前——否则读取/发送会在
                     //    已经关掉的端口上一直等到超时。
-                    CancelDeviceInfo();
-                    CancelCommandSend();
-                    CancelDownload();
+                    _deviceInfo.Cancel();
+                    _sendParse.Cancel();
+                    _download.Cancel();
                     _reconnectWanted = false;   // 是用户主动关的，别自动连回来
 
                     // ② 状态同步改完再 await。这个处理器现在是 async 的，await 期间按钮还能点，
@@ -352,8 +371,9 @@ namespace WpfApp1
 
                     // ③ 最后才等它们退干净：它们的收尾会把「已取消」写进状态栏，
                     //    不能让它落到下一次连接上。取消早已发出，不会拖满超时。
-                    await AwaitDeviceInfoStoppedAsync();
-                    await AwaitCommandSendStoppedAsync();
+                    await _deviceInfo.AwaitStoppedAsync(BackgroundStopTimeoutMs);
+                    await _sendParse.AwaitStoppedAsync(BackgroundStopTimeoutMs);
+                    await _download.AwaitStoppedAsync(BackgroundStopTimeoutMs);
                     return;
                 }
 
@@ -431,7 +451,7 @@ namespace WpfApp1
 
         private void UpdateSerialUi()
         {
-            bool open = _session != null && _session.IsOpen;
+            bool open = CanSend();
             OpenCloseButton.Content = open ? "关闭串口" : "打开串口";
             SerialStatusText.Text = open ? ("已打开：" + _portSettings.Describe()) : "未打开";
             SerialStatusText.Foreground = open ? Brushes.Green : Gray;
@@ -459,7 +479,7 @@ namespace WpfApp1
                 TemplateBox.IsEnabled = !raw;
             if (EndingCombo != null)
                 EndingCombo.IsEnabled = !raw;
-            if (_session != null && _session.IsOpen)
+            if (CanSend())
                 ReadReceiveSettings();
 
             UpdateSendModeHint();
@@ -591,11 +611,12 @@ namespace WpfApp1
 
             // 先掐设备信息读取与命令组装页的发送，再停轮询：它们可能正持着事务锁在等回包，
             // 倒过来的话轮询取消后会卡在这把锁上多等一个超时。
-            CancelDeviceInfo();
-            CancelCommandSend();
-            await AwaitDeviceInfoStoppedAsync();
-            await AwaitCommandSendStoppedAsync();
-            await AwaitDownloadStoppedAsync();
+            _deviceInfo.Cancel();
+            _sendParse.Cancel();
+            _download.Cancel();
+            await _deviceInfo.AwaitStoppedAsync(BackgroundStopTimeoutMs);
+            await _sendParse.AwaitStoppedAsync(BackgroundStopTimeoutMs);
+            await _download.AwaitStoppedAsync(BackgroundStopTimeoutMs);
 
             StopPolling(null);
             if (_pollTask != null)

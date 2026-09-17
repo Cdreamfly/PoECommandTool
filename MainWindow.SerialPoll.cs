@@ -355,7 +355,7 @@ namespace WpfApp1
             if (StartPollButton == null)
                 return;
 
-            StartPollButton.IsEnabled = !_pollingActive && !_deviceInfoBusy && !_sendParseBusy;
+            StartPollButton.IsEnabled = !_pollingActive && !_deviceInfo.IsBusy && !_sendParse.IsBusy;
         }
 
         private void OnPollRequestSent(PollRequest request)

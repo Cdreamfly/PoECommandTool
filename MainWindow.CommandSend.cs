@@ -33,9 +33,8 @@ namespace WpfApp1
             "0x02",         // 全局复位
         };
 
-        private CancellationTokenSource _sendParseCts;
-        private Task _sendParseTask;
-        private bool _sendParseBusy;
+        /// <summary>这一块的生命周期（忙标志 / 取消源 / 任务）。见 <see cref="CancelableOperation"/>。</summary>
+        private readonly CancelableOperation _sendParse = new CancelableOperation();
 
         // =================================================================
         //  触发
@@ -44,9 +43,9 @@ namespace WpfApp1
         /// <summary>发送中这颗按钮是「取消」，空闲时是「发送并解析」。</summary>
         private async void SendParse_Click(object sender, RoutedEventArgs e)
         {
-            if (_sendParseBusy)
+            if (_sendParse.IsBusy)
             {
-                CancelCommandSend();
+                _sendParse.Cancel();
                 return;
             }
 
@@ -55,16 +54,16 @@ namespace WpfApp1
 
         private Task StartCommandSend()
         {
-            if (_sendParseBusy && _sendParseTask != null)
-                return _sendParseTask;
+            if (_sendParse.IsBusy && _sendParse.CurrentTask != null)
+                return _sendParse.CurrentTask;
 
-            _sendParseTask = RunSendParseAsync();
-            return _sendParseTask;
+            _sendParse.CurrentTask = RunSendParseAsync();
+            return _sendParse.CurrentTask;
         }
 
         private async Task RunSendParseAsync()
         {
-            if (_sendParseBusy)
+            if (_sendParse.IsBusy)
                 return;
 
             if (_current == null)
@@ -73,7 +72,7 @@ namespace WpfApp1
                 return;
             }
 
-            if (_session == null || !_session.IsOpen)
+            if (!CanSend())
             {
                 SendRespBox.Text = "串口未打开——「发送并解析」需要先打开串口。"
                     + "串口关着时请用「生成命令」，它只拼帧、不发出去。";
@@ -99,8 +98,7 @@ namespace WpfApp1
             if (!ConfirmDestructiveSend(plan))
                 return;
 
-            _sendParseBusy = true;
-            _sendParseCts = new CancellationTokenSource();
+            _sendParse.TryBegin();
             UpdateCommandSendUi();
 
             int timeoutMs = ResponseTimeoutMs();
@@ -119,7 +117,7 @@ namespace WpfApp1
             {
                 for (int i = 0; i < plan.Count; i++)
                 {
-                    if (_session == null || !_session.IsOpen)
+                    if (!CanSend())
                     {
                         log.AppendLine(string.Format(CultureInfo.InvariantCulture,
                             "串口已关闭，余下 {0} 条不再发送。", plan.Count - i));
@@ -166,13 +164,7 @@ namespace WpfApp1
             }
             finally
             {
-                _sendParseBusy = false;
-
-                if (_sendParseCts != null)
-                {
-                    _sendParseCts.Dispose();
-                    _sendParseCts = null;
-                }
+                _sendParse.Finish();
 
                 SendStatusText.Text = string.Empty;
                 UpdateCommandSendUi();
@@ -191,7 +183,7 @@ namespace WpfApp1
 
             CommandKey target = CommandKey.Parse(_current.Key);
             return await CommandExchange.SendAsync(_session, item.Frame, target, item.Sequence,
-                _serialOptions, timeoutMs, _sendParseCts.Token);
+                _serialOptions, timeoutMs, _sendParse.Token);
         }
 
         // =================================================================
@@ -295,7 +287,7 @@ namespace WpfApp1
             if (SendParseButton == null)
                 return;
 
-            if (_sendParseBusy)
+            if (_sendParse.IsBusy)
             {
                 SendParseButton.Content = "取消";
                 SendParseButton.IsEnabled = true;
@@ -303,38 +295,14 @@ namespace WpfApp1
                 return;
             }
 
-            bool open = _session != null && _session.IsOpen;
+            bool open = CanSend();
             SendParseButton.Content = "发送并解析";
             // 轮询中**不**禁用：单条发送很短，而轮询每条命令之间有空隙，很快能插进去，
             // 排队期间状态栏会写着「等待串口空闲…」。
             // 设备信息读取中则禁用——它要连读六条命令，插进去要干等很久。
-            SendParseButton.IsEnabled = open && !_deviceInfoBusy;
+            SendParseButton.IsEnabled = open && !_deviceInfo.IsBusy;
             UpdatePollStartButton();
         }
 
-        /// <summary>通知发送停下（不等待）。要先于关串口发出，否则它会在已关闭的端口上等到超时。</summary>
-        private void CancelCommandSend()
-        {
-            CancellationTokenSource cts = _sendParseCts;
-            if (cts != null)
-                cts.Cancel();
-        }
-
-        /// <summary>等发送退干净（异常不外抛），带超时。</summary>
-        private async Task AwaitCommandSendStoppedAsync()
-        {
-            Task task = _sendParseTask;
-            if (task == null)
-                return;
-
-            try
-            {
-                await Task.WhenAny(task, Task.Delay(DeviceInfoStopTimeoutMs));
-            }
-            catch (Exception)
-            {
-                // 关闭流程里不往外抛
-            }
-        }
     }
 }
