@@ -33,8 +33,7 @@ namespace WpfApp1
         /// <summary>页内那个日志框已经显示到哪一行（绝对行号）。</summary>
         private long _logShownUpTo;
 
-        private readonly List<string> _loggedOnce = new List<string>();
-        private readonly List<SeriesBuffer> _legend = new List<SeriesBuffer>();
+        private readonly List<string> _loggedOnce = new List<string>();        private readonly List<SeriesBuffer> _legend = new List<SeriesBuffer>();
         private readonly Dictionary<string, SeriesBuffer> _seriesByKey = new Dictionary<string, SeriesBuffer>();
         private readonly Dictionary<SeriesBuffer, TextBlock> _legendLabels = new Dictionary<SeriesBuffer, TextBlock>();
         private readonly Dictionary<SeriesBuffer, CheckBox> _legendBoxes = new Dictionary<SeriesBuffer, CheckBox>();
@@ -765,94 +764,79 @@ namespace WpfApp1
                 AppendLogCore(lines[i]);
 
             FlushLogText();
-            SyncCommLogWindow();
+            SyncCommLogTab();
         }
 
         // =================================================================
-        //  独立日志窗口（无模式）
+        //  日志页签
         // =================================================================
 
-        private CommLogWindow _commLogWindow;
-
-        private void ShowCommLog_Click(object sender, RoutedEventArgs e)
-        {
-            if (_commLogWindow != null)
-            {
-                // 已经开着就把它拿到前面来，不另开一个
-                _commLogWindow.Activate();
-                return;
-            }
-
-            var window = new CommLogWindow { Owner = this };
-            window.Closed += delegate { _commLogWindow = null; };
-            _commLogWindow = window;
-
-            window.SyncFrom(_log);      // 先把历史补上；它自己的行号从 0 起，会走整体重建
-            window.Show();              // 无模式：开着它还能继续用主窗口
-        }
-
-        /// <summary>把日志增量推给独立窗口。日志队列只由本窗口的定时器消费，别让第二个消费者去排空它。</summary>
-        private void SyncCommLogWindow()
-        {
-            CommLogWindow window = _commLogWindow;
-            if (window == null)
-                return;
-
-            window.SyncFrom(_log);
-        }
+        /// <summary>「通讯日志」页签已经显示到哪一行（绝对行号）。与串口页那个框各记各的。</summary>
+        private long _commLogTabShownUpTo;
 
         /// <summary>
-        /// 关窗口时显式关掉它。App 用的是默认的 ShutdownMode.OnLastWindowClose，
-        /// 光靠 Owner 级联不够保险——漏掉就是进程不退的隐形残留。
-        /// </summary>
-        private void CloseCommLogWindow()
-        {
-            CommLogWindow window = _commLogWindow;
-            if (window == null)
-                return;
-
-            _commLogWindow = null;
-            try
-            {
-                window.Close();
-            }
-            catch (Exception)
-            {
-                // 关闭流程里不往外抛
-            }
-        }
-
-        /// <summary>
-        /// 日志增量追加：平时只把新增的行 AppendText 上去，只有视图落后到被丢弃的部分之前
-        /// 才整体重建。每来一行就把整串重新赋给 TextBox 会让轮询期间的界面明显卡顿——
-        /// 满 1000 行之后旧写法正是每 100ms 重建一次全量。
-        ///
-        /// 独立日志窗口由 <c>SyncCommLogWindow</c> 走同一套增量，只是各记各的行号。
+        /// 日志增量追加到串口页底部那个框。真正的增量逻辑在 <see cref="RenderLogInto"/> 里，
+        /// 通讯日志页签走同一套，只是各记各的行号。
         /// </summary>
         private void FlushLogText()
         {
+            RenderLogInto(SerialLogBox, ref _logShownUpTo, true);
+        }
+
+        /// <summary>
+        /// 把日志的增量渲染进某一个视图（串口页的框、通讯日志页签的框）。
+        ///
+        /// 平时只把新增的行 AppendText 上去，只有该视图落后到**已被丢弃**的部分之前才整体重建。
+        /// 每来一行就把整串重新赋给 TextBox 会让轮询期间的界面明显卡顿——满 1000 行之后
+        /// 旧写法正是每 100ms 重建一次全量。
+        /// </summary>
+        private void RenderLogInto(TextBox box, ref long shown, bool autoScroll)
+        {
+            if (box == null)
+                return;
+
             bool rebuild;
             long from;
-            _log.GetView(_logShownUpTo, out rebuild, out from);
+            _log.GetView(shown, out rebuild, out from);
 
             if (rebuild)
             {
-                SerialLogBox.Text = string.Join(Environment.NewLine, LogLines(from, _log.NextIndex));
+                box.Text = string.Join(Environment.NewLine, LogLines(from, _log.NextIndex));
             }
             else if (from < _log.NextIndex)
             {
                 var builder = new StringBuilder();
                 for (long i = from; i < _log.NextIndex; i++)
                     builder.Append(Environment.NewLine).Append(_log.LineAt(i));
-                SerialLogBox.AppendText(builder.ToString());
+                box.AppendText(builder.ToString());
             }
             else
             {
                 return;     // 没有新行
             }
 
-            _logShownUpTo = _log.NextIndex;
-            SerialLogBox.ScrollToEnd();
+            shown = _log.NextIndex;
+
+            if (autoScroll)
+                box.ScrollToEnd();
+        }
+
+        private void SyncCommLogTab()
+        {
+            // 页签没在前台就不渲染：视图自己记着行号，等切回来时 GetView 会一次补齐。
+            // 也正因为这样，不需要额外的「切页签」事件——定时器每 100ms 就会补上。
+            if (CommLogTabBox == null || CommLogTabItem == null || !CommLogTabItem.IsSelected)
+                return;
+
+            RenderLogInto(CommLogTabBox, ref _commLogTabShownUpTo,
+                CommLogAutoScrollCheck.IsChecked == true);
+        }
+
+        /// <summary>菜单里的「通讯日志...」：就是切到那个页签。</summary>
+        private void ShowCommLog_Click(object sender, RoutedEventArgs e)
+        {
+            if (CommLogTabItem != null)
+                CommLogTabItem.IsSelected = true;
         }
 
         /// <summary>取 [from, to) 这些行的内容。</summary>

@@ -416,10 +416,6 @@ namespace WpfApp1
             await AwaitDeviceInfoStoppedAsync();
             await AwaitCommandSendStoppedAsync();
 
-            // 独立日志窗口：不指望 WPF 的 owner 级联。App 用的是默认的
-            // ShutdownMode.OnLastWindowClose，漏一个窗口就是进程不退的隐形残留。
-            CloseCommLogWindow();
-
             StopPolling(null);
             if (_pollTask != null)
             {
