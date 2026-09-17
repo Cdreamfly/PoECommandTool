@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using WpfApp1;
 using WpfApp1.Serial;
 
@@ -52,8 +53,14 @@ namespace Rtl8239Verify
                 Check(eByte.Contains("UVLO"),
                     "拒绝信息点名了出问题的字段（便于现场定位输入框）：" + eByte);
 
-                CheckEq(Rtl8239Catalog.BuildChecked(cmdByte, 0x01, new long[] { 0xFF, 0x2F }).Length, 12,
-                    "BuildChecked 放行边界内值 0xFF / 0x2F");
+                // 这两个字段是 UVLO 原始值（0x00-0x2F）与 OVLO 原始值。
+                // 它们虽然各占一字节，设备只认到 0x2F——所以在命令级范围上线之后，
+                // 0xFF 不再"合法"。这条断言原先写的是 0xFF，固化的正是那个错。
+                CheckEq(Rtl8239Catalog.BuildChecked(cmdByte, 0x01, new long[] { 0x2F, 0x2F }).Length, 12,
+                    "BuildChecked 放行命令级上界 0x2F / 0x2F");
+                Check(ThrownBy(delegate { Rtl8239Catalog.BuildChecked(cmdByte, 0x01, new long[] { 0xFF, 0x2F }); })
+                        .StartsWith("ArgumentOutOfRangeException"),
+                    "UVLO 占一字节，但设备只认 0x00-0x2F，0xFF 被拒绝");
             }
 
             // 参数个数不符也要拒绝（防止字段与值错位后静默少写字节）
@@ -139,6 +146,55 @@ namespace Rtl8239Verify
             Check(ThrownBy(delegate { Rtl8239Catalog.ParseByte("300", "序列号"); })
                     .Contains("序列号"),
                 "ParseByte：异常信息点名了是哪个输入，便于现场定位");
+
+            // ---- 6. 命令级范围：FieldKind 只说得清"几字节"，说不清"设备认不认" ----
+            // Bank ID / 组索引 / 芯片地址这些字段都是 Byte，但设备只接受更窄的范围。
+            // 这个范围原先只写在字段名里给人看，填 0x50 会一路发到硬件。
+            var ranged = new List<string>();
+            foreach (CommandDef c in Rtl8239Catalog.All)
+            {
+                if (c.Fields == null) continue;
+                foreach (FieldDef f in c.Fields)
+                    if (f.MinValue.HasValue || f.MaxValue.HasValue)
+                        ranged.Add(c.Key + " " + f.Name);
+            }
+            Check(ranged.Count >= 12, "目录里声明了较窄范围的字段共 " + ranged.Count + " 个");
+
+            CommandDef pmConfig = null;
+            foreach (CommandDef c in Rtl8239Catalog.All) { if (c.Key == "0x4B") pmConfig = c; }
+            Check(pmConfig != null && pmConfig.Fields[0].MaxValue == 0x07, "0x4B 的 Bank ID 上限是 0x07");
+
+            string bankBad = ThrownBy(delegate
+            {
+                Rtl8239Catalog.BuildChecked(pmConfig, 0x01, new long[] { 0x50 });
+            });
+            Check(bankBad.StartsWith("ArgumentOutOfRangeException"),
+                "Bank ID 填 0x50 被拒绝（Byte 的上界是 0xFF，但设备只认 0x00-0x07）：" + bankBad);
+            Check(bankBad.Contains("Bank ID"), "异常信息点名了是哪个字段：" + bankBad);
+
+            // 边界内的值必须照常工作（防止修过头把正常用法也挡了）
+            CheckEq(Rtl8239Catalog.BuildChecked(pmConfig, 0x01, new long[] { 0x07 }).Length, 12,
+                "Bank ID 上界 0x07 正常生成");
+
+            CommandDef deviceAddr = null;
+            foreach (CommandDef c in Rtl8239Catalog.All) { if (c.Key == "0x4C") deviceAddr = c; }
+            Check(deviceAddr != null && deviceAddr.Fields[0].MinValue == 0x00
+                  && deviceAddr.Fields[0].MaxValue == 0x0B,
+                "0x4C 的索引范围是 0x00-0x0B");
+            Check(ThrownBy(delegate { Rtl8239Catalog.BuildChecked(deviceAddr, 0x01, new long[] { 0x0C }); })
+                    .StartsWith("ArgumentOutOfRangeException"),
+                "索引 0x0C 被拒绝（手册写明 0x00-0x0B 有效）");
+
+            CommandDef chipAddr = null;
+            foreach (CommandDef c in Rtl8239Catalog.All) { if (c.Key == "0xF1") chipAddr = c; }
+            Check(chipAddr != null && chipAddr.Fields[0].MinValue == 0x20
+                  && chipAddr.Fields[0].MaxValue == 0x37,
+                "0xF1 的芯片地址范围是 0x20-0x37");
+            CheckEq(Rtl8239Catalog.BuildChecked(chipAddr, 0x01, new long[] { 0x20, 0 }).Length, 12,
+                "芯片地址下界 0x20 正常生成");
+            Check(ThrownBy(delegate { Rtl8239Catalog.BuildChecked(chipAddr, 0x01, new long[] { 0x1F, 0 }); })
+                    .StartsWith("ArgumentOutOfRangeException"),
+                "芯片地址 0x1F 被拒绝（低于下界）");
         }
     }
 }
