@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -830,21 +831,24 @@ namespace WpfApp1
 
         /// <summary>
         /// 日志增量追加到串口页底部那个框。真正的增量逻辑在 <see cref="RenderLogInto"/> 里，
-        /// 通讯日志页签走同一套，只是各记各的行号。
+        /// 通讯日志页签走同一套，只是各记各的行号（并且可以按类别筛选）。
         /// </summary>
         private void FlushLogText()
         {
-            RenderLogInto(SerialLogBox, ref _logShownUpTo, true);
+            RenderLogInto(SerialLogBox, ref _logShownUpTo, true, null);
         }
 
         /// <summary>
         /// 把日志的增量渲染进某一个视图（串口页的框、通讯日志页签的框）。
         ///
-        /// 平时只把新增的行 AppendText 上去，只有该视图落后到**已被丢弃**的部分之前才整体重建。
-        /// 每来一行就把整串重新赋给 TextBox 会让轮询期间的界面明显卡顿——满 1000 行之后
-        /// 旧写法正是每 100ms 重建一次全量。
+        /// 平时只把新增的行 AppendText 上去，只有该视图落后到**已被丢弃**的部分之前、
+        /// 或者日志被清空过，才整体重建。每来一行就把整串重新赋给 TextBox 会让轮询期间的
+        /// 界面明显卡顿——满 1000 行之后旧写法正是每 100ms 重建一次全量。
+        ///
+        /// <paramref name="tagFilter"/> 为 null 表示不筛选。注意行号记的是"检查到哪一行"，
+        /// 不是"显示了哪一行"——被筛掉的行同样推进行号，否则切换筛选时会把它们重复放进来。
         /// </summary>
-        private void RenderLogInto(TextBox box, ref long shown, bool autoScroll)
+        private void RenderLogInto(TextBox box, ref long shown, bool autoScroll, ICollection<string> tagFilter)
         {
             if (box == null)
                 return;
@@ -855,14 +859,24 @@ namespace WpfApp1
 
             if (rebuild)
             {
-                box.Text = string.Join(Environment.NewLine, LogLines(from, _log.NextIndex));
+                string text = JoinLogLines(from, _log.NextIndex, tagFilter);
+                if (box.Text != text)
+                    box.Text = text;
             }
             else if (from < _log.NextIndex)
             {
                 var builder = new StringBuilder();
                 for (long i = from; i < _log.NextIndex; i++)
-                    builder.Append(Environment.NewLine).Append(_log.LineAt(i));
-                box.AppendText(builder.ToString());
+                {
+                    string line = _log.LineAt(i);
+                    if (line == null || !LogTag.ShouldShow(line, tagFilter))
+                        continue;
+
+                    builder.Append(Environment.NewLine).Append(line);
+                }
+
+                if (builder.Length > 0)
+                    box.AppendText(builder.ToString());
             }
             else
             {
@@ -875,6 +889,137 @@ namespace WpfApp1
                 box.ScrollToEnd();
         }
 
+        private string JoinLogLines(long from, long to, ICollection<string> tagFilter)
+        {
+            var rows = new List<string>();
+            for (long i = from; i < to; i++)
+            {
+                string line = _log.LineAt(i);
+                if (line != null && LogTag.ShouldShow(line, tagFilter))
+                    rows.Add(line);
+            }
+
+            return string.Join(Environment.NewLine, rows.ToArray());
+        }
+
+        // ---- 类别筛选与整份操作（#11 / #12）----
+
+        /// <summary>被用户取消勾选的类别。空集合表示「全都看」，此时不筛选。</summary>
+        private readonly HashSet<string> _disabledLogTags = new HashSet<string>();
+
+        /// <summary>
+        /// 按 <see cref="LogTag.All"/> 生成筛选复选框。
+        ///
+        /// 标签清单由纯逻辑层给出，界面不再抄一份——两处各写一份的话，
+        /// 加一个新标签时界面会静默地筛不到它。
+        /// </summary>
+        private void BuildLogFilter()
+        {
+            LogFilterPanel.Children.Clear();
+
+            for (int i = 0; i < LogTag.All.Length; i++)
+            {
+                string tag = LogTag.All[i];
+                var box = new CheckBox
+                {
+                    Content = tag,
+                    IsChecked = true,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(i == 0 ? 0 : 10, 0, 0, 0),
+                };
+                box.Checked += LogFilter_Changed;
+                box.Unchecked += LogFilter_Changed;
+                LogFilterPanel.Children.Add(box);
+            }
+        }
+
+        /// <summary>当前要显示的类别；全都勾选时返回 null（表示不筛选，省掉每行的判断）。</summary>
+        private ICollection<string> EnabledLogTags()
+        {
+            if (_disabledLogTags.Count == 0)
+                return null;
+
+            var enabled = new List<string>();
+            for (int i = 0; i < LogTag.All.Length; i++)
+                if (!_disabledLogTags.Contains(LogTag.All[i]))
+                    enabled.Add(LogTag.All[i]);
+
+            return enabled;
+        }
+
+        private void LogFilter_Changed(object sender, RoutedEventArgs e)
+        {
+            _disabledLogTags.Clear();
+            foreach (UIElement child in LogFilterPanel.Children)
+            {
+                var box = child as CheckBox;
+                if (box != null && box.IsChecked != true && box.Content != null)
+                    _disabledLogTags.Add(box.Content.ToString());
+            }
+
+            // 行号归零 → GetView 会要求整体重建，筛选立刻生效
+            _commLogTabShownUpTo = 0;
+            SyncCommLogTab();
+        }
+
+        /// <summary>当前筛选下看得见的日志正文（复制与保存共用）。</summary>
+        private string VisibleLogText()
+        {
+            return JoinLogLines(_log.FirstIndex, _log.NextIndex, EnabledLogTags());
+        }
+
+        private void LogCopy_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Clipboard.SetText(VisibleLogText());
+                AppendLog("[工具] 日志已复制到剪贴板。");
+            }
+            catch (Exception ex)
+            {
+                // 剪贴板被别的进程占着时会抛，属于常见且无害的失败
+                AppendLog("[工具] 复制日志失败（剪贴板可能被别的程序占用）：" + ex.Message);
+            }
+        }
+
+        private void LogSave_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog();
+            dialog.Filter = "文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*";
+            dialog.FileName = "commlog-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt";
+
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            try
+            {
+                // UTF-8 带 BOM：Windows 上的记事本 / Excel 才不会把中文认成乱码
+                File.WriteAllText(dialog.FileName, VisibleLogText(), new UTF8Encoding(true));
+                AppendLog("[工具] 日志已保存：" + dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("[工具] 保存日志失败：" + ex.Message);
+            }
+        }
+
+        private void LogClear_Click(object sender, RoutedEventArgs e)
+        {
+            _log.Clear();
+
+            // 「一次性提示」的去重集合也跟着清，否则清空之后那类提示再也不会出现
+            _loggedOnce.Clear();
+
+            // 两个视图的行号都归零 → 下次渲染走整体重建（重建一个空范围 == 清空显示）
+            _logShownUpTo = 0;
+            _commLogTabShownUpTo = 0;
+            FlushLogText();
+            SyncCommLogTab();
+
+            AppendLog("日志已清空。");
+            FlushLogText();
+        }
+
         private void SyncCommLogTab()
         {
             // 页签没在前台就不渲染：视图自己记着行号，等切回来时 GetView 会一次补齐。
@@ -883,21 +1028,9 @@ namespace WpfApp1
                 return;
 
             RenderLogInto(CommLogTabBox, ref _commLogTabShownUpTo,
-                CommLogAutoScrollCheck.IsChecked == true);
+                CommLogAutoScrollCheck.IsChecked == true, EnabledLogTags());
         }
 
-        /// <summary>取 [from, to) 这些行的内容。</summary>
-        private string[] LogLines(long from, long to)
-        {
-            var lines = new List<string>();
-            for (long i = from; i < to; i++)
-            {
-                string line = _log.LineAt(i);
-                if (line != null)
-                    lines.Add(line);
-            }
-            return lines.ToArray();
-        }
 
         /// <summary>把一帧解析结果变成曲线采样。只允许在 UI 线程调用。</summary>
         private void SampleFrame(FrameEvent frame)

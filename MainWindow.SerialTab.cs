@@ -42,6 +42,7 @@ namespace WpfApp1
             BuildSerialOptionLists();
             BuildPollList();
             BuildLegend();
+            BuildLogFilter();
             InitializeDeviceInfo();
 
             TemplateBox.Text = _serialOptions.Template;

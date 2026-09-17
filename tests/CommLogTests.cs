@@ -46,8 +46,11 @@ namespace Rtl8239Verify
             bool rebuild;
             long from;
             log.GetView(0, out rebuild, out from);
-            Check(!rebuild, "空日志时不需要重建");
-            CheckEq(from, 0L, "空日志时 from == NextIndex，调用方什么都不做");
+            // 行为变更（清单 12）：没显示过的视图一律整体重建，**哪怕日志是空的**。
+            // 这正是「清空」能生效的根据——重建一个空范围就等于把视图清空。
+            // 调用方对空内容做一次赋值是无害的（RenderLogInto 里还比了一次，避免重复赋值）。
+            Check(rebuild, "没显示过的视图一律整体重建");
+            CheckEq(from, 0L, "从 FirstIndex 开始重建");
 
             // --- 首次渲染走整体重建（这正是「开头不多一个空行」的根据）---
             log.Append("a");
@@ -124,6 +127,63 @@ namespace Rtl8239Verify
             // --- 非法上限立刻炸 ---
             Check(ThrownBy(delegate { new CommLog(0); }).StartsWith("ArgumentOutOfRangeException", StringComparison.Ordinal),
                 "上限为 0 抛 ArgumentOutOfRangeException");
+        }
+        private static void LogTagTests()
+        {
+            Console.WriteLine("LogTag 类别标签");
+
+            CheckEq(LogTag.Extract("14:23:05.123  [设备] 收到一行"), "设备", "取出开头的类别");
+            CheckEq(LogTag.Extract("14:23:05.123  [工具] 设备信息 0x40（设备身份）：..."), "工具",
+                "行内后面还有括号也不影响——只认第一个方括号");
+            CheckEq(LogTag.Extract("没有任何括号的一行"), null, "没有类别返回 null");
+            CheckEq(LogTag.Extract("[未闭合"), null, "括号不闭合返回 null");
+            CheckEq(LogTag.Extract(null), null, "null 不炸");
+
+            // 全部显示
+            Check(LogTag.ShouldShow("x [设备] y", null), "筛选集合为 null → 全显示");
+            Check(LogTag.ShouldShow("x [设备] y", new List<string>()), "空集合 → 全显示");
+
+            var onlyTools = new List<string> { "工具" };
+            Check(LogTag.ShouldShow("x [工具] y", onlyTools), "命中的类别显示");
+            Check(!LogTag.ShouldShow("x [设备] y", onlyTools), "没命中的类别隐藏");
+            Check(LogTag.ShouldShow("没有类别的一行", onlyTools),
+                "没有类别的行在筛选时仍然显示（它不属于任何一类，筛掉只会让日志变得莫名其妙）");
+
+            CheckEq(LogTag.All.Length, 5, "五个类别");
+            CheckEq(LogTag.All[0], "设备", "顺序：设备在最前");
+            Check(LogTag.All[4] == "工具", "工具在最后");
+
+            CheckEq(LogTag.Describe("x [发送] y"), "发送", "Describe 给出类别");
+            CheckEq(LogTag.Describe("没有类别"), "(无类别)", "Describe 对无类别给出说明");
+        }
+
+        private static void CommLogClearTests()
+        {
+            Console.WriteLine("CommLog 清空");
+
+            var log = new CommLog(100);
+            long shown = 0;
+            var view = new List<string>();
+
+            log.Append("a");
+            log.Append("b");
+            Feed(log, view, ref shown);
+            CheckEq(view.Count, 2, "先看到两行");
+
+            log.Clear();
+
+            // 清空后行号继续往前推，视图因此发现自己落后了 → 整体重建（内容为空）
+            CheckEq(log.Count, 0, "清空后没有内容");
+            CheckEq(log.NextIndex, 3L, "行号越过末尾继续推进（不归零，也不持平）");
+            CheckEq(log.FirstIndex, 3L, "FirstIndex 与 NextIndex 一起走");
+
+            Feed(log, view, ref shown);
+            CheckEq(view.Count, 0, "视图被清空");
+
+            log.Append("c");
+            Feed(log, view, ref shown);
+            CheckEq(view.Count, 1, "清空之后照常追加");
+            CheckEq(view[0], "c", "新行接在清空时的行号之后继续编号");
         }
     }
 }

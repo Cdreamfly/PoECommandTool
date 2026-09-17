@@ -462,10 +462,24 @@
             <DockPanel Margin="8">
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                     <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Foreground="#888888"
-                               Text="与「串口读写」页底部那个日志框是同一份内容，在这里能看满整页。"/>
+                               Text="与「串口读写」页底部那个日志框是同一份内容；这里能看满整页，还可以按类别筛选、复制、存盘。"/>
                     <CheckBox x:Name="CommLogAutoScrollCheck" DockPanel.Dock="Right" Content="自动滚动"
                               IsChecked="True" VerticalAlignment="Center" Margin="12,0,0,0"/>
                 </DockPanel>
+
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <TextBlock Text="只看：" VerticalAlignment="Center"/>
+                    <StackPanel x:Name="LogFilterPanel" Orientation="Horizontal" VerticalAlignment="Center"/>
+                    <Button x:Name="LogCopyButton" Content="复制全部" Width="82" Height="24"
+                            Margin="16,0,0,0" Click="LogCopy_Click"
+                            ToolTip="把当前筛选下看得见的日志整份放进剪贴板。"/>
+                    <Button x:Name="LogSaveButton" Content="保存到文件…" Width="110" Height="24"
+                            Margin="8,0,0,0" Click="LogSave_Click"
+                            ToolTip="把当前筛选下看得见的日志存成文本文件（UTF-8）。现场跑完一趟可以把它带走。"/>
+                    <Button x:Name="LogClearButton" Content="清空" Width="60" Height="24"
+                            Margin="8,0,0,0" Click="LogClear_Click"
+                            ToolTip="清空日志。曲线不受影响（清曲线在「串口读写」页）。"/>
+                </WrapPanel>
 
                 <GroupBox Padding="6"
                           Header="收发日志（[设备] 串口原样输出 · [发送] 工具发出 · [识别] 识别出的帧 · [解析] 解析结果 · [工具] 工具提示）">

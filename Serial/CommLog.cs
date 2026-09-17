@@ -52,6 +52,19 @@ namespace WpfApp1.Serial
         }
 
         /// <summary>
+        /// 清空。行号**越过**当前末尾继续往前推，而不是归零或持平——各视图自己记着的
+        /// 「显示到哪一行」因此一定会落在 FirstIndex 之前，从而整体重建（即变空）。
+        ///
+        /// 只把列表清掉是不够的：已经跟上的视图 `shown` 恰好等于 `NextIndex`，
+        /// 看起来「没有新行」，它会一直显示已经不存在的旧内容。
+        /// </summary>
+        public void Clear()
+        {
+            _firstIndex = NextIndex + 1;
+            _lines.Clear();
+        }
+
+        /// <summary>
         /// 某个视图（它自己记着「已经显示到哪一行」）现在该怎么更新。
         ///
         /// * `rebuild = true`  → 调用方整体重建，内容是从 <see cref="FirstIndex"/> 起的全部行；
@@ -59,14 +72,14 @@ namespace WpfApp1.Serial
         ///   `from == NextIndex` 表示没有新行，调用方什么都不用做。
         ///
         /// `shown == 0`（视图还没显示过任何东西）一律走整体重建：这既让中途打开的窗口能拿到完整历史，
-        /// 也避免了「第一次就当增量」而在开头多出一个分隔符（也就是一个空行）。
-        /// 视图落后到 `FirstIndex` 之前（中间的行已经被丢掉了）同样整体重建——它看到的内容必须自洽。
+        /// 也避免了「第一次就当增量」而在开头多出一个分隔符。日志被清空时同样成立——
+        /// 重建一个空范围就等于把视图清空。
         /// </summary>
         public void GetView(long shown, out bool rebuild, out long from)
         {
             if (shown <= 0 || shown < _firstIndex)
             {
-                rebuild = _lines.Count > 0;
+                rebuild = true;
                 from = _firstIndex;
                 return;
             }

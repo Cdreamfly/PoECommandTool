@@ -96,6 +96,8 @@ namespace Rtl8239Verify
             CommandKeyHintTests();
             await CommandExchangeTests();
             CommLogTests();
+            LogTagTests();
+            CommLogClearTests();
 
             Console.WriteLine();
             Console.WriteLine(_failed == 0
