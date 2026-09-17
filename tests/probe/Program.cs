@@ -36,6 +36,13 @@ namespace ChartProbe
             var thresholds = new Dictionary<string, double> { { "W", 30 }, { "mA", 550 } };
             RenderFull(outDir, "threshold.png", BuildMultiPort(), 1.0, Width, Height, null, thresholds);
 
+            // 事件标记：几条竖直虚线应当落在时间轴上、且不遮挡曲线
+            var marks = new List<ChartMarker>();
+            DateTime baseTime = DateTime.Now;
+            for (int i = 0; i < 3; i++)
+                marks.Add(new ChartMarker(baseTime.AddSeconds(-40 + i * 12), "端口 " + i + " 事件"));
+            RenderFull(outDir, "markers.png", BuildMultiPort(), 1.0, Width, Height, null, null, marks);
+
             // 实际界面里曲线那一行只有一百多像素高——这才是用户看到的样子
             RenderSized(outDir, "cramped130.png", BuildSeries(frame, 300, 200, true), 1.0, 660, 130);
             RenderSized(outDir, "cramped100.png", BuildSeries(frame, 300, 200, true), 1.0, 660, 100);
@@ -184,11 +191,19 @@ namespace ChartProbe
         private static void RenderFull(string outDir, string fileName, List<SeriesBuffer> series,
             double zoom, int width, int height, string selectedKey, Dictionary<string, double> thresholds)
         {
+            RenderFull(outDir, fileName, series, zoom, width, height, selectedKey, thresholds, null);
+        }
+
+        private static void RenderFull(string outDir, string fileName, List<SeriesBuffer> series,
+            double zoom, int width, int height, string selectedKey, Dictionary<string, double> thresholds,
+            List<ChartMarker> markers)
+        {
             var plot = new ChartPlotElement
             {
                 Series = series,
                 Window = TimeSpan.FromMinutes(1),
                 Thresholds = thresholds,
+                Markers = markers,
             };
             plot.ZoomValue(zoom);
             if (selectedKey != null)

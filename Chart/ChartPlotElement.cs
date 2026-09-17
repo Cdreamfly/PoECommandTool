@@ -28,6 +28,17 @@ namespace WpfApp1.Chart
         private static readonly Brush LabelBrush = CreateBrush(Color.FromRgb(0x55, 0x55, 0x55));
         private static readonly Brush UnitBrush = CreateBrush(Color.FromRgb(0x1A, 0x73, 0xE8));
 
+        /// <summary>事件标记用的笔：竖直虚线，与网格线、曲线、阈值线都区分得开。</summary>
+        private static readonly Pen MarkerPen = CreateMarkerPen();
+
+        private static Pen CreateMarkerPen()
+        {
+            var pen = new Pen(CreateBrush(Color.FromRgb(0x6A, 0x1B, 0x9A)), 1.0);
+            pen.DashStyle = DashStyles.Dot;
+            pen.Freeze();
+            return pen;
+        }
+
         /// <summary>阈值线用的笔：红色虚线，和网格线、曲线都区分得开。</summary>
         private static readonly Pen ThresholdPen = CreateThresholdPen();
 
@@ -248,6 +259,12 @@ namespace WpfApp1.Chart
             InvalidateVisual();
         }
 
+        /// <summary>时间轴上的事件标记（端口断开 / 故障等）。</summary>
+        public IList<ChartMarker> Markers { get; set; }
+
+        /// <summary>标记多到这个数以上就不再逐个写标签，免得糊成一片。</summary>
+        public const int MaxMarkerLabels = 20;
+
         /// <summary>阈值线变了：只需重画，布局不用重算。</summary>
         public void InvalidateThresholds()
         {
@@ -394,6 +411,9 @@ namespace WpfApp1.Chart
             drawingContext.DrawLine(AxisPen, new Point(plotLeft, plotTop), new Point(plotLeft, plotTop + plotHeight));
             drawingContext.DrawLine(AxisPen, new Point(plotLeft, plotTop + plotHeight),
                 new Point(plotLeft + plotWidth, plotTop + plotHeight));
+
+            // 事件标记：竖直虚线。放在曲线之前画，曲线压在上面也不会被它盖住。
+            DrawMarkers(drawingContext, layout, plotLeft, plotTop, plotWidth, plotHeight, pixelsPerDip);
 
             // 先画没选中的，再画选中的：选中的那条加粗并压在最上面，一眼能找到。
             // 每画一个子图都要把它裁在自己的绘图区里——放大后超出量程的点会被映射到格子外面，
@@ -569,6 +589,41 @@ namespace WpfApp1.Chart
             }
             geometry.Freeze();      // 冻结后 WPF 可以缓存几何，重绘开销小很多
             drawingContext.DrawGeometry(null, GetPen(line.ColorHex, thickness), geometry);
+        }
+
+        /// <summary>
+        /// 把事件标记画成竖直虚线；标记不多时顺带写上标签。
+        ///
+        /// 落在当前时间窗外的直接跳过——拖动回看时窗口会移出标记的范围，
+        /// 不判的话它们会挤在边缘上。
+        /// </summary>
+        private void DrawMarkers(DrawingContext drawingContext, ChartLayout layout,
+            double plotLeft, double plotTop, double plotWidth, double plotHeight, double pixelsPerDip)
+        {
+            IList<ChartMarker> markers = Markers;
+            if (markers == null || markers.Count == 0 || layout.Bands.Count == 0)
+                return;
+
+            bool withLabels = markers.Count <= MaxMarkerLabels;
+            DateTime from;
+            DateTime to;
+            ResolveVisibleWindow(out from, out to);
+            long span = to.Ticks - from.Ticks;
+            if (span <= 0)
+                return;
+
+            for (int i = 0; i < markers.Count; i++)
+            {
+                ChartMarker marker = markers[i];
+                if (marker.Time < from || marker.Time > to)
+                    continue;
+
+                double x = plotLeft + plotWidth * ((marker.Time.Ticks - from.Ticks) / (double)span);
+                drawingContext.DrawLine(MarkerPen, new Point(x, plotTop), new Point(x, plotTop + plotHeight));
+
+                if (withLabels)
+                    DrawLabel(drawingContext, marker.Label, x + 2, plotTop + 1, pixelsPerDip, TextAlignment.Left);
+            }
         }
 
         private void DrawLabel(DrawingContext drawingContext, string text, double x, double y,

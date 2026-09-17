@@ -331,6 +331,10 @@ namespace WpfApp1
             if (summary != null)
                 AppendLogCore("[解析] " + summary);
 
+            // 事件类响应（0x46）没有数值曲线，但要标到时间轴上——必须放在下面那个
+            // 「只有状态」的提前返回**之前**，否则刚好被它挡掉。
+            RecordEventMarkers(frame.Parsed);
+
             IList<SeriesCandidate> candidates = TelemetryExtractor.Extract(frame.Parsed, tag);
 
             if (candidates.Count == 0 && !TelemetryExtractor.HasNumericSeries(string.Format("0x{0:X2}", frame.CommandId)))
@@ -362,6 +366,39 @@ namespace WpfApp1
                 if (buffer.Add(now, candidate.Value))
                     _hasNewSamples = true;
             }
+        }
+
+        /// <summary>时间轴上的事件标记。有上限，长时间跑不会无限涨。</summary>
+        private readonly List<ChartMarker> _markers = new List<ChartMarker>();
+
+        /// <summary>标记最多留这么多条：再多也看不清，还白占内存。</summary>
+        private const int MaxMarkers = 400;
+
+        /// <summary>
+        /// 把事件类响应标到时间轴上。
+        ///
+        /// 0x46 早就解析出来了，但**从来没画到图上**——端口断开、故障这些在日志里一闪而过，
+        /// 事后对不上曲线上的拐点。标上去才能一眼看出「这条曲线在这里掉下去，
+        /// 是因为那个端口出事了」。
+        /// </summary>
+        private void RecordEventMarkers(object parsed)
+        {
+            List<ChartMarker> markers = EventMarkers.From(parsed, DateTime.Now);
+            if (markers.Count == 0)
+                return;
+
+            for (int i = 0; i < markers.Count; i++)
+                _markers.Add(markers[i]);
+
+            while (_markers.Count > MaxMarkers)
+                _markers.RemoveAt(0);
+
+            if (Plot != null)
+                Plot.Markers = _markers;
+
+            for (int i = 0; i < markers.Count; i++)
+                AppendLogCore("[事件] " + markers[i].Label
+                    + " @ " + markers[i].Time.ToString("HH:mm:ss.fff"));
         }
 
         private void AppendLogOnce(string text)
