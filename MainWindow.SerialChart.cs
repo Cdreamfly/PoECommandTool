@@ -832,13 +832,6 @@ namespace WpfApp1
                 CommLogAutoScrollCheck.IsChecked == true);
         }
 
-        /// <summary>菜单里的「通讯日志...」：就是切到那个页签。</summary>
-        private void ShowCommLog_Click(object sender, RoutedEventArgs e)
-        {
-            if (CommLogTabItem != null)
-                CommLogTabItem.IsSelected = true;
-        }
-
         /// <summary>取 [from, to) 这些行的内容。</summary>
         private string[] LogLines(long from, long to)
         {

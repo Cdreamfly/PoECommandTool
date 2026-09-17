@@ -15,9 +15,6 @@
             <MenuItem Header="帮助">
                 <MenuItem Header="关于..." Click="About_Click"/>
             </MenuItem>
-            <MenuItem Header="工具">
-                <MenuItem Header="通讯日志..." Click="ShowCommLog_Click"/>
-            </MenuItem>
         </Menu>
         <TabControl Margin="8">
         <!-- ============================================================= -->
