@@ -33,7 +33,8 @@ namespace WpfApp1
         /// <summary>页内那个日志框已经显示到哪一行（绝对行号）。</summary>
         private long _logShownUpTo;
 
-        private readonly List<string> _loggedOnce = new List<string>();        private readonly List<SeriesBuffer> _legend = new List<SeriesBuffer>();
+        private readonly List<string> _loggedOnce = new List<string>();
+        private readonly List<SeriesBuffer> _legend = new List<SeriesBuffer>();
         private readonly Dictionary<string, SeriesBuffer> _seriesByKey = new Dictionary<string, SeriesBuffer>();
         private readonly Dictionary<SeriesBuffer, TextBlock> _legendLabels = new Dictionary<SeriesBuffer, TextBlock>();
         private readonly Dictionary<SeriesBuffer, CheckBox> _legendBoxes = new Dictionary<SeriesBuffer, CheckBox>();

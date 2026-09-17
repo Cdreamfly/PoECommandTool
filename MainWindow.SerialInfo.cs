@@ -228,12 +228,8 @@ namespace WpfApp1
             }
         }
 
-        /// <summary>关窗口时用：先取消，再等它退干净。</summary>
-        private async Task ShutdownDeviceInfoAsync()
-        {
-            CancelDeviceInfo();
-            await AwaitDeviceInfoStoppedAsync();
-        }
+        // 注：原来这里有个 ShutdownDeviceInfoAsync（取消 + 等待），但关串口的路径需要
+        // 「先同步发取消、改完状态、最后才等」，两件事被拆开用了，那个方法就没有调用者了。
 
         // =================================================================
         //  渲染
