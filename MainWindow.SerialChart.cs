@@ -58,8 +58,12 @@ namespace WpfApp1
         private bool _chartMaximized;    // 曲线是否处于最大化
         private GridLength[] _savedRowHeights;
 
-        /// <summary>最大化时收起的行：串口(0) / 发送(1) / 手动帧(2) / 分隔条(5) / 日志(6)。</summary>
-        private static readonly int[] ChartMaximizeCollapsedRows = { 0, 1, 2, 5, 6 };
+        /// <summary>
+        /// 最大化时收起的行：发送(0) / 手动帧(1) / 分隔条(4) / 日志(5)。
+        ///
+        /// 串口操作那一行已经提到页签上方了，不再是这里的行——所以行号比原先各小 1。
+        /// </summary>
+        private static readonly int[] ChartMaximizeCollapsedRows = { 0, 1, 4, 5 };
 
         private void MaximizeChart_Click(object sender, RoutedEventArgs e)
         {
