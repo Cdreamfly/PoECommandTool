@@ -169,6 +169,7 @@
     <Compile Include="Serial\CommandKey.cs" />
     <Compile Include="Serial\CommandExchange.cs" />
     <Compile Include="Serial\CommLog.cs" />
+    <Compile Include="Serial\CancelableOperation.cs" />
     <Compile Include="Serial\DownloadRunner.cs" />
     <Compile Include="Serial\LogTag.cs" />
     <Compile Include="Serial\ResponseEchoCheck.cs" />
