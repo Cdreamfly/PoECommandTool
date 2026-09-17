@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>一个采样点。</summary>
     public struct SeriesSample

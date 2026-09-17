@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>发送方式。</summary>
     public enum SendMode

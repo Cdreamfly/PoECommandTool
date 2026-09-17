@@ -1,6 +1,6 @@
 using System;
-using WpfApp1;
-using WpfApp1.Chart;
+using PoECommandTool;
+using PoECommandTool.Chart;
 
 namespace Rtl8239Verify
 {

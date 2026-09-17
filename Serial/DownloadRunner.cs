@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>一次下载的进度快照。</summary>
     public sealed class DownloadProgress

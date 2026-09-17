@@ -1,5 +1,5 @@
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-$exe = 'C:\Users\ymz\source\repos\WpfApp1\bin\Release\WpfApp1.exe'
+$exe = 'C:\Users\ymz\source\repos\WpfApp1\bin\Release\PoECommandTool.exe'
 $p = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 6
 $p.Refresh()

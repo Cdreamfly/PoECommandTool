@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 裸帧模式下的帧同步器：从字节流里找出校验和正确的 RTL8239 响应帧。

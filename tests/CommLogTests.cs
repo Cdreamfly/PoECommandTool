@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using WpfApp1.Serial;
+using PoECommandTool.Serial;
 
 namespace Rtl8239Verify
 {

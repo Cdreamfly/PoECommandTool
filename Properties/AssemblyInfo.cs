@@ -49,5 +49,5 @@ using System.Windows;
 //      修订号
 //
 // 版本号只在 AppVersion.Number 里改一处，界面显示和程序集版本一起变
-[assembly: AssemblyVersion(WpfApp1.AppVersion.Number)]
-[assembly: AssemblyFileVersion(WpfApp1.AppVersion.Number)]
+[assembly: AssemblyVersion(PoECommandTool.AppVersion.Number)]
+[assembly: AssemblyFileVersion(PoECommandTool.AppVersion.Number)]

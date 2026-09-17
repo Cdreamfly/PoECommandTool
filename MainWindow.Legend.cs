@@ -8,10 +8,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using WpfApp1.Chart;
-using WpfApp1.Serial;
+using PoECommandTool.Chart;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 「串口读写」页的图例与曲线管理。

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     // =====================================================================
     //  RTL8239 命令目录（供界面展示与参数输入）

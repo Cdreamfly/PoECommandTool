@@ -14,14 +14,14 @@ C# 语言版本锁 **7.3**）。
 
 ```bash
 "/mnt/d/Programs/Microsoft Visual Studio/18/Enterprise/MSBuild/Current/Bin/MSBuild.exe" \
-  'C:\Users\ymz\source\repos\WpfApp1\WpfApp1.csproj' /t:Rebuild /p:Configuration=Release /nologo /v:minimal
-# → WpfApp1 -> ...\bin\Release\WpfApp1.exe   （0 错误 0 警告）
+  'C:\Users\ymz\source\repos\WpfApp1\PoECommandTool.csproj' /t:Rebuild /p:Configuration=Release /nologo /v:minimal
+# → PoECommandTool -> ...\bin\Release\PoECommandTool.exe   （0 错误 0 警告）
 ```
 
 - 工程路径必须写 **Windows 路径**（`C:\...`）；写成 `/mnt/c/...` 会被 MSBuild 当成开关参数。
 - **不要**用遗留的 Framework MSBuild（`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe`）
   ——它自带的是 C# 5 编译器，连字符串插值都编不过。VS Enterprise 自带的那个不用任何垫片。
-- `bin\Release\WpfApp1.exe` 被另一个实例占用时，构建会卡在最后一步复制（MSB3027）。
+- `bin\Release\PoECommandTool.exe` 被另一个实例占用时，构建会卡在最后一步复制（MSB3027）。
   加 `/p:OutputPath='bin\ReviewBuild\'` 换条输出路径即可验证编译。**先确认那是不是用户自己开着的实例**。
 
 ## 验证

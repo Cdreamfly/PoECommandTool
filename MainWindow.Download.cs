@@ -5,9 +5,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
-using WpfApp1.Serial;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 「固件下载」页的在线半边：把生成好的下载帧真的发给设备。

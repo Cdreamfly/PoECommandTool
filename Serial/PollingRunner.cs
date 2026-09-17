@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 把轮询调度器接到串口会话上：发帧 → 等回包 → 把结果抛成事件。

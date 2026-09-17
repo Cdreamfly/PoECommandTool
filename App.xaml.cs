@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 应用入口。这里原先是个空类——没有任何全局异常处理，于是三处异常都会**静默消失**：

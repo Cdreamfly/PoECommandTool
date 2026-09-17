@@ -1,4 +1,4 @@
-<Window x:Class="WpfApp1.AboutWindow"
+<Window x:Class="PoECommandTool.AboutWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="关于 RTL8239 PoE Command Tool"

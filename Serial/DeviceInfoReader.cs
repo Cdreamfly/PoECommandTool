@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>设备信息面板里的一行「标签 : 值」。</summary>
     public sealed class DeviceInfoField

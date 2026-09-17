@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using WpfApp1;
-using WpfApp1.Chart;
-using WpfApp1.Serial;
+using PoECommandTool;
+using PoECommandTool.Chart;
+using PoECommandTool.Serial;
 
 namespace Rtl8239Verify
 {

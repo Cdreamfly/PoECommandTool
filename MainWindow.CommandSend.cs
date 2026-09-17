@@ -5,9 +5,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using WpfApp1.Serial;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 「命令组装」页的在线半边：串口打开时，把当前选中的命令按「串口读写」页的方式发出去，

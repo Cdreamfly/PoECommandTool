@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>
     /// 曲线上的阈值参考线：按**单位**给一条水平线，例如「功率超过 30W 就画条虚线」。

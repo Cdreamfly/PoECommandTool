@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using WpfApp1.Serial;
+using PoECommandTool.Serial;
 
 namespace Rtl8239Verify
 {

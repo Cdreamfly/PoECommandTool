@@ -11,7 +11,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Microsoft.Win32;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// MainWindow.xaml 的交互逻辑

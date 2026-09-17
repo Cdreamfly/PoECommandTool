@@ -11,7 +11,7 @@ public class WinApi2 {
 }
 "@
 
-$exe = 'C:\Users\ymz\source\repos\WpfApp1\bin\Release\WpfApp1.exe'
+$exe = 'C:\Users\ymz\source\repos\WpfApp1\bin\Release\PoECommandTool.exe'
 $outDir = 'C:\Users\ymz\source\repos\WpfApp1\tools\shots'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 

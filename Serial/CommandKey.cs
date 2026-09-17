@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 命令键名（"0x44" / "0xC0-04"）的解析结果，连同两条跟着命令走、不该散落各处的规则：

@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using WpfApp1;
-using WpfApp1.Serial;
+using PoECommandTool;
+using PoECommandTool.Serial;
 
 namespace Rtl8239Verify
 {

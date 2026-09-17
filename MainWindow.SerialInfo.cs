@@ -6,9 +6,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using WpfApp1.Serial;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 「串口读写」页的设备信息面板（身份/诊断类查询）。

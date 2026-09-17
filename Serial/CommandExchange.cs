@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>一次单命令往返的结果。</summary>
     public sealed class ExchangeResult

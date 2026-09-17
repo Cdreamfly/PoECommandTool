@@ -8,10 +8,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using WpfApp1.Chart;
-using WpfApp1.Serial;
+using PoECommandTool.Chart;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 「通讯日志」页签：日志存储的接线、按类别筛选、复制 / 存盘 / 清空，

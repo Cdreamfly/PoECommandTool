@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 解析界面上的端口输入，支持多种写法，用来把一条命令展开成多个端口的轮询项：

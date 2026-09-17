@@ -5,10 +5,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using WpfApp1.Chart;
-using WpfApp1.Serial;
+using PoECommandTool.Chart;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 「串口读写」页的轮询部分：可轮询命令的勾选列表、启停、状态显示。

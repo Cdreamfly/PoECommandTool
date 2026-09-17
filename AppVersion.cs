@@ -1,4 +1,4 @@
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 程序版本号——**要改版本只改这里的 <see cref="Number"/> 一处**。

@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{B9EA807C-A73A-44A1-8498-7F408B82C6AC}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>WpfApp1</RootNamespace>
-    <AssemblyName>WpfApp1</AssemblyName>
+    <RootNamespace>PoECommandTool</RootNamespace>
+    <AssemblyName>PoECommandTool</AssemblyName>
     <ApplicationIcon>POE.ico</ApplicationIcon>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
@@ -63,7 +63,7 @@
     <ManifestCertificateThumbprint>3C7B69D1671DE86A185A7E682664B3674D9C2FB5</ManifestCertificateThumbprint>
   </PropertyGroup>
   <PropertyGroup>
-    <ManifestKeyFile>WpfApp1_TemporaryKey.pfx</ManifestKeyFile>
+    <ManifestKeyFile>PoECommandTool_TemporaryKey.pfx</ManifestKeyFile>
   </PropertyGroup>
   <PropertyGroup>
     <GenerateManifests>true</GenerateManifests>
@@ -212,7 +212,7 @@
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
     </None>
-    <None Include="WpfApp1_TemporaryKey.pfx" />
+    <None Include="PoECommandTool_TemporaryKey.pfx" />
     <Resource Include="POE.ico" />
   </ItemGroup>
   <ItemGroup>

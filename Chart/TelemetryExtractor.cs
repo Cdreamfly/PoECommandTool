@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>从解析结果里抽出来的一条待画曲线（还没绑定缓冲）。</summary>
     public struct SeriesCandidate

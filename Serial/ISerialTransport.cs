@@ -1,6 +1,6 @@
 using System;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>串口故障类型。</summary>
     public enum SerialFaultKind

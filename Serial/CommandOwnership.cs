@@ -1,4 +1,4 @@
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>一条命令的归属：命令号，以及界面上用什么小标题显示它。</summary>
     public sealed class CommandOwner

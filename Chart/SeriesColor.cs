@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>
     /// 给曲线分配颜色。

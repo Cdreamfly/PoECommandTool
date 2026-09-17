@@ -4,8 +4,8 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using WpfApp1;
-using WpfApp1.Chart;
+using PoECommandTool;
+using PoECommandTool.Chart;
 
 namespace ChartProbe
 {

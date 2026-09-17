@@ -2,14 +2,14 @@ using System;
 using System.Reflection;
 using System.Text;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 把解析结果（<see cref="Rtl8239ResponseParser"/> 返回的那些结构体）渲染成可读文本。
     ///
     /// 用反射而不是手写格式化，是为了**加新命令时不用再写一遍**——代价是字段名原样出现、
     /// 没有单位后缀、没有本地化，`Description` 字段混在其它字段里照原样打印。
-    /// 要那种「一行摘要」请看 <see cref="WpfApp1.ResponseSummarizer"/>。
+    /// 要那种「一行摘要」请看 <see cref="PoECommandTool.ResponseSummarizer"/>。
     ///
     /// 放在纯逻辑层是有原因的：它原先只存在于 WPF 那半边，于是断言工程只好抄一份副本，
     /// 结果就是**改真代码、测试照旧全绿**。现在两边用的是同一份。

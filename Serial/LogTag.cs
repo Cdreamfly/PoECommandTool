@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 日志行的类别标签。行形如 <c>14:23:05.123  [设备] 收到的一行原文</c>。

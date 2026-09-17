@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>轮询计划（界面上的勾选、间隔、超时、重试）。</summary>
     public sealed class PollingPlan

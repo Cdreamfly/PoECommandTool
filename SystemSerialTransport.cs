@@ -1,7 +1,7 @@
 using System;
 using System.IO.Ports;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// <see cref="ISerialTransport"/> 的真实实现——整个工程里**唯一**碰 System.IO.Ports 的文件。

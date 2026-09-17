@@ -7,13 +7,13 @@
 | 位置 | 当前值 | 说明 |
 |---|---|---|
 | `AppVersion.cs` 的 `AppVersion.Number` | `1.3.1` | 标题栏 / 关于框 / 启动日志 / 程序集版本都读它（`Properties/AssemblyInfo.cs` 引用同一个常量） |
-| `WpfApp1.csproj` 的 `<ApplicationVersion>` | `1.3.1.0` | 四段式；`<ApplicationRevision>` 保持 `0` |
+| `PoECommandTool.csproj` 的 `<ApplicationVersion>` | `1.3.1.0` | 四段式；`<ApplicationRevision>` 保持 `0` |
 
 改完跑一次构建，确认 exe 的文件属性里 `FileVersion` / `ProductVersion` 是同一个版本。
 
 ## 签名密钥 ⚠️ 有到期日
 
-发布用的 `.pfx` 在仓库根目录：`WpfApp1_TemporaryKey.pfx`。它**不在版本控制里**
+发布用的 `.pfx` 在仓库根目录：`PoECommandTool_TemporaryKey.pfx`。它**不在版本控制里**
 （`.gitignore` 有 `*.pfx`），发布时它在磁盘上即可。
 
 实测（openssl，2026-09-17）：
@@ -26,7 +26,7 @@
 | 密码 | **无**（`-passin pass:` 即可导出私钥） |
 | 时间戳 | **未配置时间戳服务** |
 
-指纹与 `WpfApp1.csproj` 里的 `<ManifestCertificateThumbprint>` 一致，所以它确实是
+指纹与 `PoECommandTool.csproj` 里的 `<ManifestCertificateThumbprint>` 一致，所以它确实是
 **当前生效**的发布密钥，不是历史遗留。
 
 ### 两件独立的事
@@ -44,14 +44,14 @@
 所以这一步不是纯技术操作，得先确认：
 
 - 现有安装分布在哪些机器上、能不能接受重装；
-- 新证书放哪（建议 `CN=WpfApp1 Release`、5–10 年、**带密码**、装进证书存储而不是仓库树）；
+- 新证书放哪（建议 `CN=PoECommandTool Release`、5–10 年、**带密码**、装进证书存储而不是仓库树）；
 - 是否配置时间戳服务（配了就不受证书到期影响）。
 
 在此之前，**至少要做的**是给 2026-12-13 设个提醒。
 
 ## 发布目标目录
 
-`WpfApp1.csproj` 里 `<PublishUrl>` 当前指向 **`D:\TFTP\`**。
+`PoECommandTool.csproj` 里 `<PublishUrl>` 当前指向 **`D:\TFTP\`**。
 
 审查指出该目录 `drwxrwxrwx`，且**固件载荷与可执行产物混放**（22 个 `.img`、8 个 49MB
 `.bin`、两个 `.mp3`、脚本、`.docx`……只有 1 个哈希旁文件）。风险不在目录本身，
