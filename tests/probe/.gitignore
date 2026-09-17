@@ -1,0 +1,4 @@
+
+# 验证工程的产物（探针渲染出的 PNG、截图、测试输出）
+tests/probe/*.png
+tools/shots/
