@@ -300,155 +300,35 @@ namespace WpfApp1
             }
         }
 
-        // 响应 Byte2 回显请求端口的命令。
-        private static readonly byte[] PortEchoCommands = { 0x42, 0x44, 0x45, 0x48, 0x49, 0x4E, 0x4F };
-
         // 可选的一致性核对：界面上填了「期望序列号 / 期望端口」时才检查响应帧里回显的值，
         // 只提示不阻断。只在解析成功后调用，因此不会把校验和错误误报成序列号不符。
+        //
+        // 规则本身在 ResponseEchoCheck 里——「命令组装」页发送后走的是**同一份**规则，
+        // 两处各写一套文案就是等着漂移。
         private string CheckFrameExpectations(byte[] frame)
         {
-            var notes = new List<string>();
-            bool isAppFrame = frame.Length >= Rtl8239CommandBuilder.AppFrameLength;
-            try
-            {
-                string seqText = (ExpectSeqText.Text ?? string.Empty).Trim();
-                if (seqText.Length > 0)
-                {
-                    if (!isAppFrame)
-                        notes.Add("响应帧不足 12 字节，无法核对序列号");
-                    else if (frame[0] == 0x4B)
-                        notes.Add("0x4B 响应 Byte1 为 Bank ID，跳过序列号核对");
-                    else
-                    {
-                        byte expected = ParseExpectationByte(seqText, "期望序列号");
-                        if (!Rtl8239CommandBuilder.IsResponseValid(frame, expected))
-                            notes.Add($"序列号不符：期望 0x{expected:X2}，实际 0x{frame[1]:X2}");
-                    }
-                }
+            string notes = Serial.ResponseEchoCheck.Describe(Serial.ResponseEchoCheck.NotesFromText(
+                frame, ExpectSeqText.Text, ExpectPortText.Text, true));
 
-                string portText = (ExpectPortText.Text ?? string.Empty).Trim();
-                if (portText.Length > 0)
-                {
-                    if (!PortEchoCommands.Contains(frame[0]))
-                        notes.Add($"命令 0x{frame[0]:X2} 的响应不含端口回显，跳过端口核对");
-                    else if (!isAppFrame)
-                        notes.Add("响应帧不足 12 字节，无法核对端口");
-                    else
-                    {
-                        byte expected = ParseExpectationByte(portText, "期望端口");
-                        if (frame[2] != expected)
-                            notes.Add($"端口回显不符：期望 0x{expected:X2}，实际 0x{frame[2]:X2}");
-                    }
-                }
-            }
-            catch (FormatException ex) { notes.Add("期望值无效：" + ex.Message); }
-            catch (OverflowException) { notes.Add("期望值超出可解析范围。"); }
-
-            return notes.Count == 0
+            return notes.Length == 0
                 ? string.Empty
-                : "⚠ " + string.Join("；", notes) + Environment.NewLine + Environment.NewLine;
+                : notes + Environment.NewLine + Environment.NewLine;
         }
 
-        private static byte ParseExpectationByte(string text, string label)
-        {
-            // 与序列号走同一套边界判断，避免这里成为第二份会各自漂移的副本
-            return Rtl8239Catalog.ParseByte(text, label);
-        }
-
+        // 十六进制文本 → 字节。走 HexUtil：它接受连写的十六进制（"420100FF"），
+        // 并且错误信息带字段序号——早先这里有一份自己的实现，对 "123" 这种奇数长度
+        // 会抛出框架的 OverflowException，用户看不懂。
         private static byte[] ParseHexBytes(string s)
         {
-            var tokens = (s ?? string.Empty).Split(
-                new[] { ' ', ',', '\t', '\r', '\n', ';' }, StringSplitOptions.RemoveEmptyEntries);
-            var bytes = new byte[tokens.Length];
-            for (int i = 0; i < tokens.Length; i++)
-            {
-                string t = tokens[i].Trim();
-                if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
-                bytes[i] = Convert.ToByte(t, 16);
-            }
-            return bytes;
+            return Serial.HexUtil.ParseBytes(s);
         }
 
         // 用反射把解析结果结构体渲染成可读文本（便于新命令无需手写格式化）。
+        // 实现搬到 Serial/ResultFormatter.cs 了：它原先只存在于这一层，于是断言工程
+        // 只好抄一份副本，结果就是「改真代码、测试照旧全绿」。
         private static string FormatObject(object obj)
         {
-            var sb = new StringBuilder();
-            FormatValue(sb, obj, 0);
-            return sb.ToString();
-        }
-
-        private static void FormatValue(StringBuilder sb, object obj, int indent)
-        {
-            string pad = new string(' ', indent);
-            if (obj == null) { sb.AppendLine(pad + "null"); return; }
-
-            Type t = obj.GetType();
-
-            if (obj is Array arr)
-            {
-                for (int i = 0; i < arr.Length; i++)
-                {
-                    object item = arr.GetValue(i);
-                    if (item == null)
-                    {
-                        sb.AppendLine(pad + "[" + i + "] null");
-                        continue;
-                    }
-                    if (IsSimpleValue(item))
-                    {
-                        sb.AppendLine(pad + "[" + i + "] " + item);
-                    }
-                    else
-                    {
-                        // 嵌套的数组 / 结构体：另起一行递归展开
-                        sb.AppendLine(pad + "[" + i + "]");
-                        FormatValue(sb, item, indent + 4);
-                    }
-                }
-                return;
-            }
-
-            if (t.IsPrimitive || obj is string || obj is bool)
-            {
-                sb.AppendLine(pad + obj.ToString());
-                return;
-            }
-
-            if (t.IsEnum)
-            {
-                sb.AppendLine(pad + t.Name + "." + obj);
-                return;
-            }
-
-            // 结构体：按公共字段展开
-            sb.AppendLine(pad + t.Name + ":");
-            foreach (FieldInfo f in t.GetFields())
-            {
-                object v = f.GetValue(obj);
-                sb.Append(pad + "  " + f.Name + ": ");
-                if (v == null)
-                {
-                    sb.AppendLine("null");
-                    continue;
-                }
-                if (IsSimpleValue(v))
-                {
-                    sb.AppendLine(v.ToString());
-                }
-                else
-                {
-                    // 数组 / 嵌套结构体：另起一行递归展开，否则这里只能打印类型名
-                    sb.AppendLine();
-                    FormatValue(sb, v, indent + 4);
-                }
-            }
-        }
-
-        // 能在一行内打印完的值；其余（数组、嵌套结构体）需要递归展开。
-        private static bool IsSimpleValue(object v)
-        {
-            Type t = v.GetType();
-            return t.IsPrimitive || t.IsEnum || v is string || v is decimal;
+            return Serial.ResultFormatter.Format(obj);
         }
 
         // =================================================================

@@ -240,34 +240,17 @@ namespace WpfApp1
         /// 核对回包是不是真属于我们刚发出去的那一帧。
         ///
         /// 比「响应解析」页那两个手填的期望值框更硬：期望的序列号与端口都是从**实际发出的帧**来的。
-        /// 0x4B 的 Byte1 是 Bank ID 而非序列号，所以它自然被排除在序列号核对之外。
+        /// 规则在 <see cref="ResponseEchoCheck"/> 里——「响应解析」页走的是同一份，不该各写一套。
         /// </summary>
-        private string CheckSendEcho(FrameEvent frame, PlannedFrame item)
+        private static string CheckSendEcho(FrameEvent frame, PlannedFrame item)
         {
-            if (frame == null || frame.Raw == null || frame.Raw.Length < 12)
+            if (frame == null)
                 return null;
 
-            byte commandId = frame.Raw[0];
-            var notes = new List<string>();
+            string notes = ResponseEchoCheck.Describe(ResponseEchoCheck.NotesForSent(
+                frame.Raw, item.Sequence, item.HasPort ? (int?)item.Port : null));
 
-            if (SerialSession.IsSequenceCorrelatable(commandId) && frame.Raw[1] != item.Sequence)
-                notes.Add(string.Format(CultureInfo.InvariantCulture,
-                    "序列号回显不符：期望 0x{0:X2}，实际 0x{1:X2}", item.Sequence, frame.Raw[1]));
-
-            if (item.HasPort && EchoesPort(commandId) && frame.Raw[2] != (byte)item.Port)
-                notes.Add(string.Format(CultureInfo.InvariantCulture,
-                    "端口回显不符：期望 0x{0:X2}，实际 0x{1:X2}", (byte)item.Port, frame.Raw[2]));
-
-            return notes.Count == 0 ? null : "⚠ " + string.Join("；", notes.ToArray());
-        }
-
-        private bool EchoesPort(byte commandId)
-        {
-            for (int i = 0; i < PortEchoCommands.Length; i++)
-                if (PortEchoCommands[i] == commandId)
-                    return true;
-
-            return false;
+            return notes.Length == 0 ? null : notes;
         }
 
         // =================================================================

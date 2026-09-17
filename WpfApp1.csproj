@@ -157,6 +157,8 @@
     <Compile Include="Serial\CommandKey.cs" />
     <Compile Include="Serial\CommandExchange.cs" />
     <Compile Include="Serial\CommLog.cs" />
+    <Compile Include="Serial\ResponseEchoCheck.cs" />
+    <Compile Include="Serial\ResultFormatter.cs" />
     <Compile Include="Serial\CommandOwnership.cs" />
     <Compile Include="Serial\DeviceInfoReader.cs" />
     <Compile Include="Serial\PollPlan.cs" />

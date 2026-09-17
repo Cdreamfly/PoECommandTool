@@ -247,18 +247,18 @@ namespace Rtl8239Verify
         {
             Console.WriteLine("FormatValue rendering");
 
-            string group = Formatter.Format(
+            string group = ResultFormatter.Format(
                 Rtl8239ResponseParser.ParsePortGroupStatus(Frame("43 01 00 42 03 00 00 61 1E 44 52")));
             Check(!group.Contains("PortGroupPortStatus[]"), "0x43 结果不再打印类型名");
             Check(group.Contains("AbsolutePort"), "0x43 结果展开到端口字段");
             Check(group.Contains("过温关断"), "0x43 结果包含故障描述");
 
-            string addr = Formatter.Format(
+            string addr = ResultFormatter.Format(
                 Rtl8239ResponseParser.ParseGlobalDeviceAddress(Frame("4C 01 00 20 22 FF FF 20 24 FF FF")));
             Check(!addr.Contains("System.Byte[]"), "0x4C 结果不再打印 System.Byte[]");
             Check(addr.Contains("PresentCount"), "0x4C 结果包含在位数");
 
-            string port = Formatter.Format(
+            string port = ResultFormatter.Format(
                 Rtl8239ResponseParser.ParsePortStatus(Frame("42 01 05 04 0E FF FF 00 FF FF FF")));
             Check(port.Contains("FaultType: Gotp"), "0x42 故障端口 FaultType 可读");
             Check(port.Contains("DetectionResult: null"), "0x42 故障端口不适用的检测字段显示 null");
@@ -271,183 +271,67 @@ namespace Rtl8239Verify
             Console.WriteLine("CheckFrameExpectations");
 
             byte[] statusFrame = Frame("42 01 05 02 44 FF FF 00 FF FF FF");   // seq=01, port=05
-            var checker = new ExpectationChecker();
 
-            CheckEq(checker.Check(statusFrame, "", ""), "", "未填期望值时不提示");
-            CheckEq(checker.Check(statusFrame, "01", "05"), "", "序列号与端口都相符时不提示");
+            CheckEq(CheckExpectations(statusFrame, "", ""), "", "未填期望值时不提示");
+            CheckEq(CheckExpectations(statusFrame, "01", "05"), "", "序列号与端口都相符时不提示");
 
-            string seqBad = checker.Check(statusFrame, "02", "");
+            string seqBad = CheckExpectations(statusFrame, "02", "");
             Check(seqBad.Contains("序列号不符"), "序列号不符时提示：" + seqBad.Trim());
 
-            string portBad = checker.Check(statusFrame, "", "07");
+            string portBad = CheckExpectations(statusFrame, "", "07");
             Check(portBad.Contains("端口回显不符"), "端口回显不符时提示：" + portBad.Trim());
 
-            string notPortCmd = checker.Check(Frame("40 01 00 08 01 39 00 12 00 00 10"), "", "05");
+            string notPortCmd = CheckExpectations(Frame("40 01 00 08 01 39 00 12 00 00 10"), "", "05");
             Check(notPortCmd.Contains("不含端口回显"), "非端口命令跳过端口核对");
 
-            string bankIdCmd = checker.Check(Frame("4B 00 02 2C 01 2C 01 2C 01 2C 01"), "01", "");
+            string bankIdCmd = CheckExpectations(Frame("4B 00 02 2C 01 2C 01 2C 01 2C 01"), "01", "");
             Check(bankIdCmd.Contains("跳过序列号核对"), "0x4B 跳过序列号核对");
 
-            string badValue = checker.Check(statusFrame, "zz", "");
+            string badValue = CheckExpectations(statusFrame, "zz", "");
             Check(badValue.Contains("期望值无效"), "非法期望值给出提示：" + badValue.Trim());
+
+            // 发送侧用的是同一份规则，但期望值来自**实际发出的帧**，不是手填的，
+            // 所以不要「跳过核对」那类解释——那是给填了框的人看的。
+            CheckEq(ResponseEchoCheck.Describe(
+                ResponseEchoCheck.NotesForSent(statusFrame, 0x01, 5)), "",
+                "发送侧：序列号与端口都对上时不提示");
+
+            var seqMismatch = ResponseEchoCheck.NotesForSent(statusFrame, 0x02, 5);
+            CheckEq(seqMismatch.Count, 1, "发送侧：序列号对不上报一条");
+            Check(seqMismatch[0].Contains("序列号回显不符"), "发送侧用「回显不符」的说法：" + seqMismatch[0]);
+
+            var portMismatch = ResponseEchoCheck.NotesForSent(statusFrame, 0x01, 7);
+            Check(portMismatch.Count == 1 && portMismatch[0].Contains("端口回显不符"),
+                "发送侧：端口对不上报一条");
+
+            CheckEq(ResponseEchoCheck.NotesForSent(statusFrame, 0x01, null).Count, 0,
+                "发送侧：不带端口的命令不核对端口");
+
+            // 0x4B 的 Byte1 是 Bank ID：发送侧**不该**对它报序列号不符
+            byte[] bankFrame = Frame("4B 00 02 2C 01 2C 01 2C 01 2C 01");
+            CheckEq(ResponseEchoCheck.NotesForSent(bankFrame, 0x01, null).Count, 0,
+                "发送侧：0x4B 不做序列号核对（Byte1 是 Bank ID）");
+
+            Check(ResponseEchoCheck.EchoesPort(0x44) && !ResponseEchoCheck.EchoesPort(0x40),
+                "端口回显命令表：0x44 有，0x40 没有");
             Console.WriteLine();
         }
 
-        // MainWindow.xaml.cs 依赖 WPF，这里把 TextBox 换成 Stub，其余代码逐字一致。
-        internal sealed class TextBoxStub { public string Text = ""; }
-
-        internal sealed class ExpectationChecker
+        // 回显核对现在直接调生产代码的 ResponseEchoCheck。
+        // 原先这里是一个 ExpectationChecker + TextBoxStub，把 MainWindow.xaml.cs 的
+        // 实现逐字抄了一份——那份副本漂移了也没人知道。
+        private static string CheckExpectations(byte[] frame, string seqText, string portText)
         {
-            private readonly TextBoxStub ExpectSeqText = new TextBoxStub();
-            private readonly TextBoxStub ExpectPortText = new TextBoxStub();
+            string notes = ResponseEchoCheck.Describe(
+                ResponseEchoCheck.NotesFromText(frame, seqText, portText, true));
 
-            internal string Check(byte[] frame, string seqText, string portText)
-            {
-                ExpectSeqText.Text = seqText;
-                ExpectPortText.Text = portText;
-                return CheckFrameExpectations(frame);
-            }
-
-            // ---- 以下与 MainWindow.xaml.cs 逐字一致 ----
-            private static readonly byte[] PortEchoCommands = { 0x42, 0x44, 0x45, 0x48, 0x49, 0x4E, 0x4F };
-
-            private string CheckFrameExpectations(byte[] frame)
-            {
-                var notes = new List<string>();
-                bool isAppFrame = frame.Length >= Rtl8239CommandBuilder.AppFrameLength;
-                try
-                {
-                    string seqText = (ExpectSeqText.Text ?? string.Empty).Trim();
-                    if (seqText.Length > 0)
-                    {
-                        if (!isAppFrame)
-                            notes.Add("响应帧不足 12 字节，无法核对序列号");
-                        else if (frame[0] == 0x4B)
-                            notes.Add("0x4B 响应 Byte1 为 Bank ID，跳过序列号核对");
-                        else
-                        {
-                            byte expected = ParseExpectationByte(seqText, "期望序列号");
-                            if (!Rtl8239CommandBuilder.IsResponseValid(frame, expected))
-                                notes.Add($"序列号不符：期望 0x{expected:X2}，实际 0x{frame[1]:X2}");
-                        }
-                    }
-
-                    string portText = (ExpectPortText.Text ?? string.Empty).Trim();
-                    if (portText.Length > 0)
-                    {
-                        if (!PortEchoCommands.Contains(frame[0]))
-                            notes.Add($"命令 0x{frame[0]:X2} 的响应不含端口回显，跳过端口核对");
-                        else if (!isAppFrame)
-                            notes.Add("响应帧不足 12 字节，无法核对端口");
-                        else
-                        {
-                            byte expected = ParseExpectationByte(portText, "期望端口");
-                            if (frame[2] != expected)
-                                notes.Add($"端口回显不符：期望 0x{expected:X2}，实际 0x{frame[2]:X2}");
-                        }
-                    }
-                }
-                catch (FormatException ex) { notes.Add("期望值无效：" + ex.Message); }
-                catch (OverflowException) { notes.Add("期望值超出可解析范围。"); }
-
-                return notes.Count == 0
-                    ? string.Empty
-                    : "⚠ " + string.Join("；", notes) + Environment.NewLine + Environment.NewLine;
-            }
-
-            private static byte ParseExpectationByte(string text, string label)
-            {
-                // 与 MainWindow.xaml.cs 一致：现在两处都委托给 Rtl8239Catalog.ParseByte
-                return Rtl8239Catalog.ParseByte(text, label);
-            }
+            return notes.Length == 0
+                ? string.Empty
+                : notes + Environment.NewLine + Environment.NewLine;
         }
 
-        // =================================================================
-        //  以下 FormatValue / IsSimpleValue 与 MainWindow.xaml.cs 中的实现
-        //  逐字一致（该文件依赖 WPF，无法在本验证工程中编译）。
-        // =================================================================
-        internal static class Formatter
-        {
-            internal static string Format(object obj)
-            {
-                var sb = new StringBuilder();
-                FormatValue(sb, obj, 0);
-                return sb.ToString();
-            }
-
-            private static void FormatValue(StringBuilder sb, object obj, int indent)
-            {
-                string pad = new string(' ', indent);
-                if (obj == null) { sb.AppendLine(pad + "null"); return; }
-
-                Type t = obj.GetType();
-
-                if (obj is Array arr)
-                {
-                    for (int i = 0; i < arr.Length; i++)
-                    {
-                        object item = arr.GetValue(i);
-                        if (item == null)
-                        {
-                            sb.AppendLine(pad + "[" + i + "] null");
-                            continue;
-                        }
-                        if (IsSimpleValue(item))
-                        {
-                            sb.AppendLine(pad + "[" + i + "] " + item);
-                        }
-                        else
-                        {
-                            // 嵌套的数组 / 结构体：另起一行递归展开
-                            sb.AppendLine(pad + "[" + i + "]");
-                            FormatValue(sb, item, indent + 4);
-                        }
-                    }
-                    return;
-                }
-
-                if (t.IsPrimitive || obj is string || obj is bool)
-                {
-                    sb.AppendLine(pad + obj.ToString());
-                    return;
-                }
-
-                if (t.IsEnum)
-                {
-                    sb.AppendLine(pad + t.Name + "." + obj);
-                    return;
-                }
-
-                // 结构体：按公共字段展开
-                sb.AppendLine(pad + t.Name + ":");
-                foreach (FieldInfo f in t.GetFields())
-                {
-                    object v = f.GetValue(obj);
-                    sb.Append(pad + "  " + f.Name + ": ");
-                    if (v == null)
-                    {
-                        sb.AppendLine("null");
-                        continue;
-                    }
-                    if (IsSimpleValue(v))
-                    {
-                        sb.AppendLine(v.ToString());
-                    }
-                    else
-                    {
-                        // 数组 / 嵌套结构体：另起一行递归展开，否则这里只能打印类型名
-                        sb.AppendLine();
-                        FormatValue(sb, v, indent + 4);
-                    }
-                }
-            }
-
-            // 能在一行内打印完的值；其余（数组、嵌套结构体）需要递归展开。
-            private static bool IsSimpleValue(object v)
-            {
-                Type t = v.GetType();
-                return t.IsPrimitive || t.IsEnum || v is string || v is decimal;
-            }
-        }
+        // 渲染与回显核对现在都引用**生产代码本身**（Serial/ResultFormatter.cs、
+        // Serial/ResponseEchoCheck.cs）。原先这里是两份逐字副本，而副本的问题是
+        // 改真代码测试照旧全绿——测试测的是副本，不是发出去的代码。
     }
 }
