@@ -10,7 +10,7 @@ using PoECommandTool.Serial;
 namespace PoECommandTool
 {
     /// <summary>
-    /// 「命令组装」页的在线半边：串口打开时，把当前选中的命令按「串口读写」页的方式发出去，
+    /// 「命令组装」页的在线半边：串口打开时，把当前选中的命令按「连接与读写」页的方式发出去，
     /// 并把回包自动解析出来。
     ///
     /// 串口关着时这一页的行为与从前**逐字节一致**——「发送并解析」那颗按钮是置灰的，
@@ -74,7 +74,7 @@ namespace PoECommandTool
 
             if (!CanSend())
             {
-                SendRespBox.Text = "串口未打开——「发送并解析」需要先打开串口。"
+                SendRespBox.Text = ConnectPrompt + "「发送并解析」需要链路已连接。"
                     + "串口关着时请用「生成命令」，它只拼帧、不发出去。";
                 UpdateCommandSendUi();
                 return;
@@ -172,7 +172,7 @@ namespace PoECommandTool
         }
 
         /// <summary>
-        /// 发一帧并等它的响应。发送方式跟着「串口读写」页当前的设置走（文本模板 / 裸帧直连），
+        /// 发一帧并等它的响应。发送方式跟着「连接与读写」页当前的设置走（文本模板 / 裸帧直连），
         /// 与手工发送、轮询用的是同一套。
         /// </summary>
         private async Task<ExchangeResult> ExchangeOneAsync(PlannedFrame item, int timeoutMs)

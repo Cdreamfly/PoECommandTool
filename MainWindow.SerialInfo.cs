@@ -11,7 +11,7 @@ using PoECommandTool.Serial;
 namespace PoECommandTool
 {
     /// <summary>
-    /// 「串口读写」页的设备信息面板（身份/诊断类查询）。
+    /// 「连接与读写」页的设备信息面板（身份/诊断类查询）。
     ///
     /// 只做「接线 + 封送到 UI 线程」——读什么、怎么分页、怎么格式化都在
     /// <see cref="DeviceInfoReader"/> 里（纯 C#，能在 Linux 上编译并断言）。
@@ -87,7 +87,7 @@ namespace PoECommandTool
 
             if (!CanSend())
             {
-                AppendLog("请先打开串口。");
+                AppendLog(ConnectPrompt);
                 UpdateDeviceInfoUi();
                 return;
             }

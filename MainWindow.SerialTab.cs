@@ -1,18 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using PoECommandTool.Chart;
+using PoECommandTool.Net;
 using PoECommandTool.Serial;
 
 namespace PoECommandTool
 {
     /// <summary>
-    /// 「串口读写」页的串口配置与发送部分。
+    /// 「连接与读写」页的串口配置与发送部分。
     ///
     /// 这里只做「接线 + 封送到 UI 线程」——协议、调度、采样、绘图计算都在 Serial/ 与 Chart/
     /// 的纯 C# 类里（那些能在 Linux 上编译并断言）。轮询见 MainWindow.SerialPoll.cs，
@@ -27,9 +29,62 @@ namespace PoECommandTool
         private const int BackgroundStopTimeoutMs = 1500;
 
         private SerialSession _session;
+        private SwitchableTransport _link;
         private SendOptions _serialOptions;
         private SerialPortSettings _portSettings;
         private bool _closing;
+
+        /// <summary>
+        /// 正在建立连接。连接现在是异步的（见 <see cref="OpenSerialAsync"/>），
+        /// 握手期间 <c>_session.IsOpen</c> 还是 false，不挡住的话连点两下会开两次。
+        /// </summary>
+        private bool _connecting;
+
+        /// <summary>当前选中的链路类型。</summary>
+        private TransportKind _transportKind = TransportKind.Serial;
+
+        /// <summary>
+        /// 网络链路的端点与账号。主机/端口/用户名在内存里记住，**口令不落盘**、
+        /// 每次连接时现输，断开时清掉。
+        /// </summary>
+        private NetworkSettings _netSettings;
+
+        /// <summary>连接方式下拉框的选项。**只列真的实现了的方式**——列了却不能连比不列更糟。</summary>
+        private static readonly string[] TransportLabels = { "串口", "Telnet", "SSH" };
+        private static readonly TransportKind[] TransportKinds =
+        {
+            TransportKind.Serial, TransportKind.Telnet, TransportKind.Ssh,
+        };
+
+        /// <summary>当前链路在界面文案里的说法。</summary>
+        private string LinkWord
+        {
+            get
+            {
+                switch (_transportKind)
+                {
+                    case TransportKind.Telnet: return "Telnet";
+                    case TransportKind.Ssh: return "SSH";
+                    default: return "串口";
+                }
+            }
+        }
+
+        /// <summary>
+        /// 「还没连接，请用户先做什么」的统一说法。
+        ///
+        /// 收敛到一处：这句话原先在四个文件里各写了一遍「请先打开串口。」，
+        /// 加了网络链路之后如果还各处手写，早晚会出现某一处忘了改。
+        /// </summary>
+        private string ConnectPrompt
+        {
+            get
+            {
+                return _transportKind == TransportKind.Serial
+                    ? "请先打开串口。"
+                    : "请先连接 " + LinkWord + "。";
+            }
+        }
 
         // =================================================================
         //  初始化
@@ -39,13 +94,18 @@ namespace PoECommandTool
         {
             _serialOptions = new SendOptions();
             _portSettings = new SerialPortSettings();
-            _session = new SerialSession(new SystemSerialTransport());
+            // 会话终身持有这一个转发器；真正用哪条链路（串口 / Telnet / SSH）在连接时装进去。
+            // 见 Serial/SwitchableTransport.cs。
+            _link = new SwitchableTransport();
+            _link.Install(new SystemSerialTransport());
+            _session = new SerialSession(_link);
             _session.Fault += OnSerialFault;
             _session.LineReceived += OnSerialLineReceived;
             _session.LineRejected += OnSerialLineRejected;
             _session.FrameReceived += OnSerialFrameReceived;
 
             BuildSerialOptionLists();
+
             BuildPollList();
             BuildLegend();
             BuildLogFilter();
@@ -71,6 +131,13 @@ namespace PoECommandTool
             _chartTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _chartTimer.Tick += ChartTimer_Tick;
             _chartTimer.Start();
+
+            // 连接方式下拉框要放在**初始化最后**：设置 SelectedIndex 会触发
+            // SelectionChanged → UpdateTransportPanels → UpdateSerialUi，而后者会
+            // 顺带刷新设备信息 / 发送 / 下载那几块，得等它们都建好。
+            TransportCombo.ItemsSource = TransportLabels;
+            TransportCombo.SelectedIndex = 0;
+            UpdateTransportPanels();
 
             StartPortWatcher();
             Closing += SerialTab_Closing;
@@ -126,7 +193,7 @@ namespace PoECommandTool
             string[] ports;
             try
             {
-                ports = new SystemSerialTransport().GetPortNames();
+                ports = SystemSerialTransport.GetPortNames();
             }
             catch (Exception)
             {
@@ -175,19 +242,61 @@ namespace PoECommandTool
         /// </summary>
         private async Task OpenSerialAsync()
         {
-            _portSettings = ReadPortSettings();
-            ReadReceiveSettings();
-            _session.Open(_portSettings);
-
-            _lastOpenedPort = _portSettings.PortName;
-            _reconnectWanted = false;
-
-            AppendLog("已打开 " + _portSettings.Describe());
+            if (_connecting)
+                return;
+            _connecting = true;
             UpdateSerialUi();
 
-            // 刚连上先读一次设备信息：这不是轮询，只有一次往返，但能立刻暴露
+            try
+            {
+                TransportSettings settings = ReadTransportSettings();
+                ReadReceiveSettings();
+
+                // 调试控制台只回文本；裸帧是直连 UART 才有的概念。
+                if (_transportKind != TransportKind.Serial)
+                    _session.ReceiveMode = ReceiveMode.TextLines;
+
+                // 整段「收尾旧循环 → 换芯 → 建立连接」都放到后台线程。两个理由：
+                //  1) 网络方式的连接是同步阻塞的（TCP 握手 + SSH 协商，超时上限 10 秒），
+                //     占着 UI 线程会让窗口假死；
+                //  2) SSH 的主机密钥确认回调是在**别的线程**上抛的（2026-10-08 实测：
+                //     回调线程 ≠ 调用线程），它必须派发回 UI 线程才能弹框——而如果 UI 线程
+                //     正卡在 Connect() 里，那个派发会**死等**（是死锁，不是报错）。
+                await Task.Run(delegate
+                {
+                    // 先把旧读循环收干净（它还阻塞在**旧**传输层上），再换芯。
+                    // 顺序反过来的话，旧循环会从刚装上的新传输层读，并且把「还没打开」报成一次链路故障。
+                    _session.Close();
+                    _link.Install(BuildTransport());
+
+                    _session.Open(settings);
+                });
+
+                var serial = settings as SerialPortSettings;
+                _lastOpenedPort = serial != null ? serial.PortName : null;
+                _reconnectWanted = false;
+
+                AppendLog("已连接 " + settings.Describe());
+            }
+            finally
+            {
+                // 到这儿链路已经算连上了：_connecting 必须马上复位，否则按钮会一直灰着、
+                // 状态一直显示「连接中…」，而下面那次设备信息读取在设备不回话时要等好几个超时。
+                _connecting = false;
+                UpdateSerialUi();
+            }
+
+            // 刚连上顺手读一次设备信息：这不是轮询，只有一次往返，但能立刻暴露
             // 「设备不认这些命令」这类问题，省得用户以为是按钮坏了。
-            await StartDeviceInfoRead();
+            // 它失败不该影响「已经连上」这个事实，所以单独兜异常。
+            try
+            {
+                await StartDeviceInfoRead();
+            }
+            catch (Exception ex)
+            {
+                AppendLog("读取设备信息失败：" + ex.Message);
+            }
         }
 
         // =================================================================
@@ -220,6 +329,10 @@ namespace PoECommandTool
         /// </summary>
         private async void PortWatch_Tick(object sender, EventArgs e)
         {
+            // 热插拔只对串口有意义：网络链路没有「端口列表」可看。
+            if (_transportKind != TransportKind.Serial)
+                return;
+
             try
             {
                 string[] ports = SafePortNames();
@@ -291,7 +404,7 @@ namespace PoECommandTool
         {
             try
             {
-                return new SystemSerialTransport().GetPortNames();
+                return SystemSerialTransport.GetPortNames();
             }
             catch (Exception)
             {
@@ -364,9 +477,9 @@ namespace PoECommandTool
 
                     // ② 状态同步改完再 await。这个处理器现在是 async 的，await 期间按钮还能点，
                     //    那时 IsOpen 若还是 true，下一次点击会被误判成「再关一次」而被吞掉。
-                    StopPolling("串口已关闭，轮询已停止。");
+                    StopPolling(LinkWord + "已断开，轮询已停止。");
                     _session.Close();
-                    AppendLog("已关闭 " + _portSettings.Describe());
+                    AppendLog("已断开 " + CurrentLinkDescription());
                     UpdateSerialUi();
 
                     // ③ 最后才等它们退干净：它们的收尾会把「已取消」写进状态栏，
@@ -383,9 +496,165 @@ namespace PoECommandTool
             {
                 // 开关两个分支共用：Close() 在旧读循环没能按时退出时会抛（拒绝信号），
                 // 所以这里不能写死「打开失败」。
-                AppendLog("串口操作失败：" + ex.Message);
+                AppendLog("连接操作失败：" + ex.Message);
                 UpdateSerialUi();
             }
+        }
+
+        // =================================================================
+        //  连接方式（串口 / Telnet / SSH）
+        // =================================================================
+
+        private void TransportCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            int index = TransportCombo.SelectedIndex;
+            _transportKind = index >= 0 && index < TransportKinds.Length
+                ? TransportKinds[index]
+                : TransportKind.Serial;
+
+            UpdateTransportPanels();
+        }
+
+        /// <summary>按当前方式显示对应的一排参数控件。</summary>
+        private void UpdateTransportPanels()
+        {
+            if (SerialOptionsPanel == null || NetworkOptionsPanel == null)
+                return;
+
+            bool serial = _transportKind == TransportKind.Serial;
+            SerialOptionsPanel.Visibility = serial ? Visibility.Visible : Visibility.Collapsed;
+            NetworkOptionsPanel.Visibility = serial ? Visibility.Collapsed : Visibility.Visible;
+
+            // 网络链路只有文本：控制台的输出是一行行文本，没有裸帧这回事。
+            if (!serial && ModeRawRadio != null)
+            {
+                if (ModeRawRadio.IsChecked == true && ModeTextRadio != null)
+                    ModeTextRadio.IsChecked = true;     // 从串口切过来时把裸帧收回去
+                ModeRawRadio.IsEnabled = false;
+            }
+            else if (ModeRawRadio != null)
+            {
+                ModeRawRadio.IsEnabled = true;
+            }
+
+            if (SshKeyPanel != null)
+                SshKeyPanel.Visibility = _transportKind == TransportKind.Ssh
+                    ? Visibility.Visible : Visibility.Collapsed;
+
+            if (NetHintText != null)
+            {
+                switch (_transportKind)
+                {
+                    case TransportKind.Telnet:
+                        NetHintText.Text = "Telnet 不加密：账号与数据以明文经过网络，仅限可信内网使用。";
+                        break;
+                    case TransportKind.Ssh:
+                        NetHintText.Text = "首次连接会要求确认主机密钥指纹。";
+                        break;
+                    default:
+                        NetHintText.Text = string.Empty;
+                        break;
+                }
+            }
+
+            if (NetPortBox != null && _netSettings == null)
+            {
+                NetPortBox.Text = NetworkSettings.DefaultPortFor(_transportKind)
+                    .ToString(CultureInfo.InvariantCulture);
+            }
+
+            UpdateSerialUi();
+        }
+
+        /// <summary>
+        /// 按当前方式把界面上的设置收成一个 <see cref="TransportSettings"/>。
+        ///
+        /// 网络方式的**口令只从 PasswordInput 现取、只放进这个对象里**：不落盘、不进日志，
+        /// 连上之后由传输层自己用掉（见 Net/TelnetTransport.cs 的 LoginIfNeeded）。
+        /// </summary>
+        private TransportSettings ReadTransportSettings()
+        {
+            if (_transportKind == TransportKind.Serial)
+            {
+                _portSettings = ReadPortSettings();
+                return _portSettings;
+            }
+
+            if (_netSettings == null || _netSettings.Kind != _transportKind)
+                _netSettings = new NetworkSettings(_transportKind);
+
+            _netSettings.Host = (HostBox.Text ?? string.Empty).Trim();
+            _netSettings.Port = (int)ParseLong(NetPortBox.Text,
+                NetworkSettings.DefaultPortFor(_transportKind), 1, 65535);
+            _netSettings.User = (UserBox.Text ?? string.Empty).Trim();
+            _netSettings.Password = PasswordInput.Password ?? string.Empty;
+            _netSettings.KeyFile = (KeyBox.Text ?? string.Empty).Trim();
+
+            return _netSettings;
+        }
+
+        /// <summary>按当前方式造一个传输层，交给 <see cref="SwitchableTransport"/> 当芯。</summary>
+        private ITransport BuildTransport()
+        {
+            switch (_transportKind)
+            {
+                case TransportKind.Telnet:
+                    return new TelnetTransport();
+
+                case TransportKind.Ssh:
+                    var ssh = new SshTransport();
+                    // 主机密钥确认必须由界面给：传输层在 Net/ 里，不碰 WPF。
+                    // 不接这个回调的话 SshTransport 会**拒绝**一切主机密钥（安全默认）。
+                    ssh.HostKeyPrompt = ConfirmSshHostKey;
+                    return ssh;
+
+                default:
+                    return new SystemSerialTransport();
+            }
+        }
+
+        /// <summary>
+        /// 首次见到某台设备的主机密钥时问一句。指纹只在本次运行内记住；换了指纹会再问一次
+        /// （也就是说，指纹变了要么是真的换了机器，要么是有人在中间——两种情况都该让人看见）。
+        /// </summary>
+        private bool ConfirmSshHostKey(SshHostKey key)
+        {
+            // 这个回调**不在 UI 线程上**（SSH.NET 在它自己的协商线程上抛事件，实测如此），
+            // 而 MessageBox 要碰窗口对象——不派发的话就是
+            // 「调用线程无法访问此对象，因为另一个线程拥有该对象」。
+            //
+            // 这里敢用阻塞式 Invoke，是因为调用方已经把这整段连接放到了后台线程，
+            // UI 线程是空闲的。（若哪天有人把 Open 挪回 UI 线程，这里会死锁。）
+            if (!Dispatcher.CheckAccess())
+                return (bool)Dispatcher.Invoke(new Func<bool>(delegate { return ConfirmSshHostKey(key); }));
+
+            string text =
+                "第一次连接到 " + key.Host + ":" + key.Port + "。\n\n" +
+                "主机密钥类型：" + key.KeyName + "\n" +
+                "指纹：" + key.FingerPrint + "\n\n" +
+                "确认这是你要连的那台设备吗？\n" +
+                "（指纹与设备上 ssh-keyscan / ssh-keygen -lf 的结果应当一致）";
+
+            return MessageBox.Show(this, text, "确认主机密钥",
+                MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK;
+        }
+
+        private void KeyBrowse_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog();
+            dialog.Title = "选择 SSH 私钥文件";
+            dialog.Filter = "私钥文件 (*.*)|*.*";
+            if (dialog.ShowDialog(this) == true)
+                KeyBox.Text = dialog.FileName;
+        }
+
+        /// <summary>状态栏上描述当前链路的那一行。</summary>
+        private string CurrentLinkDescription()
+        {
+            if (_transportKind == TransportKind.Serial)
+                return _portSettings.Describe();
+
+            return _netSettings != null ? _netSettings.Describe() : (LinkWord + " 未连接");
         }
 
         private SerialPortSettings ReadPortSettings()
@@ -435,6 +704,10 @@ namespace PoECommandTool
 
         private bool IsRawMode()
         {
+            // 网络链路只有文本：调试控制台回的是行文本，没有裸帧这回事。
+            if (_transportKind != TransportKind.Serial)
+                return false;
+
             // 注意：XAML 解析到 ModeTextRadio 的 IsChecked="True" 时就会触发 SendMode_Checked，
             // 那一刻 ModeRawRadio 还没被创建出来，所以这里必须判空。
             return ModeRawRadio != null && ModeRawRadio.IsChecked == true;
@@ -452,17 +725,27 @@ namespace PoECommandTool
         private void UpdateSerialUi()
         {
             bool open = CanSend();
-            OpenCloseButton.Content = open ? "关闭串口" : "打开串口";
-            SerialStatusText.Text = open ? ("已打开：" + _portSettings.Describe()) : "未打开";
+            OpenCloseButton.Content = open ? "断开" : "连接";
+            OpenCloseButton.IsEnabled = !_connecting;
+            SerialStatusText.Text = _connecting
+                ? "连接中…"
+                : (open ? ("已连接：" + CurrentLinkDescription()) : "未连接");
             SerialStatusText.Foreground = open ? Brushes.Green : Gray;
 
             bool canEdit = !open;
+            TransportCombo.IsEnabled = canEdit;
             PortCombo.IsEnabled = canEdit;
             BaudCombo.IsEnabled = canEdit;
             DataBitsCombo.IsEnabled = canEdit;
             ParityCombo.IsEnabled = canEdit;
             StopBitsCombo.IsEnabled = canEdit;
             RefreshPortsButton.IsEnabled = canEdit;
+            HostBox.IsEnabled = canEdit;
+            NetPortBox.IsEnabled = canEdit;
+            UserBox.IsEnabled = canEdit;
+            PasswordInput.IsEnabled = canEdit;
+            KeyBox.IsEnabled = canEdit;
+            KeyBrowseButton.IsEnabled = canEdit;
             UpdateDeviceInfoUi();
             UpdateCommandSendUi();
             UpdateDownloadUi();
@@ -516,7 +799,7 @@ namespace PoECommandTool
             {
                 if (!_session.IsOpen)
                 {
-                    AppendLog("请先打开串口。");
+                    AppendLog(ConnectPrompt);
                     return;
                 }
 

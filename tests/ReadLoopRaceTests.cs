@@ -18,7 +18,7 @@ namespace Rtl8239Verify
     internal static partial class Program
     {
         private static volatile int _raceFrames;
-        private static volatile SerialFault _raceFault;
+        private static volatile TransportFault _raceFault;
 
         private static async Task ReadLoopRaceTests()
         {
@@ -105,7 +105,7 @@ namespace Rtl8239Verify
             using (var session = new SerialSession(fake))
             {
                 _raceFault = null;
-                session.Fault += delegate(SerialFault f) { _raceFault = f; };
+                session.Fault += delegate(TransportFault f) { _raceFault = f; };
 
                 session.Open(TestSettings());
                 Thread.Sleep(50);
@@ -114,8 +114,8 @@ namespace Rtl8239Verify
 
                 Check(WaitFor(delegate { return _raceFault != null; }, 2000),
                     "传输层报告已关闭时上报故障（而不是当空闲继续重试）");
-                Check(_raceFault != null && _raceFault.Kind == SerialFaultKind.DeviceRemoved,
-                    "故障类型是 DeviceRemoved");
+                Check(_raceFault != null && _raceFault.Kind == TransportFaultKind.LinkLost,
+                    "故障类型是 LinkLost");
                 Check(!session.IsOpen, "上报故障后会话标记为已关闭");
 
                 int after = fake.ReadCalls;

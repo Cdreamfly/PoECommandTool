@@ -11,7 +11,7 @@ using PoECommandTool.Serial;
 namespace PoECommandTool
 {
     /// <summary>
-    /// 「串口读写」页的轮询部分：可轮询命令的勾选列表、启停、状态显示。
+    /// 「连接与读写」页的轮询部分：可轮询命令的勾选列表、启停、状态显示。
     /// 调度与配对逻辑在 PollingScheduler / PollingRunner / SerialSession 里，这里只负责接线。
     /// </summary>
     public partial class MainWindow
@@ -129,7 +129,7 @@ namespace PoECommandTool
             {
                 if (!_session.IsOpen)
                 {
-                    AppendLog("请先打开串口。");
+                    AppendLog(ConnectPrompt);
                     return;
                 }
 

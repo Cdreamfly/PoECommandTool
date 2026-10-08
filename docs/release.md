@@ -97,8 +97,43 @@
 ## 发布前检查
 
 - [ ] `AppVersion.Number` 与 csproj 的 `ApplicationVersion` 一致
-- [ ] Release 构建 0 错误 0 警告
+- [ ] 先 `/t:Restore` 再 Release 构建，0 错误 0 警告
 - [ ] `dotnet run --project tests/Verify.csproj` → ALL PASS
 - [ ] 签名证书未过期（见上）
 - [ ] 发布目录是部署专用目录，不与固件载荷混放
+- [ ] **依赖 DLL 都随包发布了**（见下）
 - [ ] 装一次、跑一次，确认标题栏版本号正确
+- [ ] 在干净机器上**连一次 SSH**（哪怕连不上，也不能是「无法加载程序集」）
+
+## 第三方依赖：SSH.NET
+
+本项目唯一的直接依赖是 **SSH.NET 2025.1.0**（SSH 传输）。它会拖来 11 个传递依赖，
+`bin\Release` 里实际会出现 **12 个 DLL**：
+
+```
+Renci.SshNet.dll                     BouncyCastle.Cryptography.dll
+Microsoft.Extensions.Logging.Abstractions.dll
+Microsoft.Extensions.DependencyInjection.Abstractions.dll
+System.Formats.Asn1.dll              System.Memory.dll
+System.Buffers.dll                   System.Numerics.Vectors.dll
+System.Runtime.CompilerServices.Unsafe.dll
+System.Threading.Tasks.Extensions.dll  Microsoft.Bcl.AsyncInterfaces.dll
+System.ValueTuple.dll
+```
+
+（这份清单是构建后从 `bin\Release\*.dll` 数出来的，不是照 nuspec 猜的——
+nuspec 只列直接依赖，传递依赖要 restore 之后才知道。）
+
+**构建流程变了**：加了包之后 `/t:Rebuild` 不再隐式还原，必须 `/t:Restore` → `/t:Rebuild`。
+
+`<MapFileExtensions>true</MapFileExtensions>` 会让它们在发布目录里显示成 `.deploy`，排查时记得。
+
+**绑定重定向**：`App.config` 之前被登记成 `EmbeddedResource`，于是 `$(AppConfig)` 为空、
+`AutoGenerateBindingRedirects` 一个重定向都没生成（没有第三方依赖时看不出来）。
+已改成常规的 `<None Include="App.config" />`，现在 `PoECommandTool.exe.config` 会随包发布。
+当前这 12 个 DLL 之间没有版本冲突，所以里面只有 `<supportedRuntime>`；
+一旦将来出现冲突，重定向会出现在这个文件里——**发布时确认它也在包里**。
+
+缺少依赖的表现是：**干净机器上第一次点「连接」（SSH）时才 `FileNotFoundException`**，
+所以「在干净机器上连一次」是发布前必须做的一步，本机测不出来。
+

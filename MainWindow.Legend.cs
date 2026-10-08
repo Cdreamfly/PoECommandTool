@@ -14,7 +14,7 @@ using PoECommandTool.Serial;
 namespace PoECommandTool
 {
     /// <summary>
-    /// 「串口读写」页的图例与曲线管理。
+    /// 「连接与读写」页的图例与曲线管理。
     ///
     /// 从 MainWindow.SerialChart.cs 里拆出来的（原文件超了 800 行的软上限）：
     /// 这个文件管「有哪些曲线、图例怎么显示、勾选怎么同步」，

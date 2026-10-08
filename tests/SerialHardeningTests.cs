@@ -264,10 +264,10 @@ namespace Rtl8239Verify
 
             // --- M1：写失败会把会话标记成关闭（否则轮询无限重试刷屏）---
             var writeFake = new FakeSerialTransport();
-            var writeFaults = new List<SerialFault>();
+            var writeFaults = new List<TransportFault>();
             using (var session = new SerialSession(writeFake))
             {
-                session.Fault += delegate(SerialFault f) { lock (writeFaults) writeFaults.Add(f); };
+                session.Fault += delegate(TransportFault f) { lock (writeFaults) writeFaults.Add(f); };
                 session.Open(TestSettings());
                 writeFake.ThrowOnWrite = true;
 
@@ -279,17 +279,17 @@ namespace Rtl8239Verify
                 lock (writeFaults)
                 {
                     CheckEq(writeFaults.Count, 1, "上报一次写故障");
-                    CheckEq(writeFaults[0].Kind, SerialFaultKind.WriteFailed, "故障类型是写失败");
+                    CheckEq(writeFaults[0].Kind, TransportFaultKind.WriteFailed, "故障类型是写失败");
                 }
                 Check(!session.IsOpen, "写失败后会话标记为已关闭");
             }
 
             // --- M4：读故障之后再打开，要能正常工作（也不能泄漏取消源）---
             var reopenFake = new FakeSerialTransport();
-            var reopenFaults = new List<SerialFault>();
+            var reopenFaults = new List<TransportFault>();
             using (var session = new SerialSession(reopenFake))
             {
-                session.Fault += delegate(SerialFault f) { lock (reopenFaults) reopenFaults.Add(f); };
+                session.Fault += delegate(TransportFault f) { lock (reopenFaults) reopenFaults.Add(f); };
                 session.Open(TestSettings());
                 reopenFake.ThrowOnRead = true;
                 Check(WaitFor(delegate { lock (reopenFaults) return reopenFaults.Count > 0; }, 2000), "读故障已上报");

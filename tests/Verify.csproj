@@ -37,6 +37,17 @@
     <Compile Include="EventMarkerTests.cs" />
     <Compile Include="LoaderAckScanTests.cs" />
     <Compile Include="DownloadRunnerTests.cs" />
+    <Compile Include="TelnetNegotiationTests.cs" />
+    <Compile Include="TelnetTransportTests.cs" />
+    <Compile Include="ShellReadPumpTests.cs" />
+
+    <!-- Net/ 下与网络有关的源码：**逐个文件显式列出，不要写成 Net\*.cs 通配**。
+         通配会把 SshTransport.cs 也拉进来，而它依赖 SSH.NET，在 Linux 上编不过。
+         IShellChannel / ShellReadPump 不碰 SSH.NET，所以能进来、能断言。 -->
+    <Compile Include="..\Net\TelnetNegotiation.cs" />
+    <Compile Include="..\Net\TelnetTransport.cs" />
+    <Compile Include="..\Net\IShellChannel.cs" />
+    <Compile Include="..\Net\ShellReadPump.cs" />
     <Compile Include="..\Chart\*.cs"
              Exclude="..\Chart\ChartPlotElement.cs" />
     <Compile Include="..\Rtl8239Catalog.cs" />

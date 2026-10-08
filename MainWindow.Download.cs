@@ -61,7 +61,17 @@ namespace PoECommandTool
             if (!CanSend())
             {
                 DlStatusText.Foreground = Brushes.Firebrick;
-                DlStatusText.Text = "串口未打开——先到「串口读写」页打开串口。";
+                DlStatusText.Text = ConnectPrompt;
+                return;
+            }
+
+            if (_transportKind != TransportKind.Serial)
+            {
+                // 下载走的是裸帧直连（Loader 应答是 4 字节、无校验和的二进制帧），
+                // 而网络链路上只有设备的文本调试控制台——这一页在那种链路上用不了。
+                DlStatusText.Foreground = Brushes.Firebrick;
+                DlStatusText.Text = "固件下载需要裸帧直连，只有串口链路支持；"
+                    + LinkWord + " 上是设备的文本调试控制台。";
                 return;
             }
 
@@ -69,7 +79,7 @@ namespace PoECommandTool
             {
                 // Loader 应答是 4 字节二进制，文本模式按行拆包根本认不出来
                 DlStatusText.Foreground = Brushes.Firebrick;
-                DlStatusText.Text = "请把「串口读写」页切到「裸帧直连」——Loader 应答是 4 字节二进制，文本模式认不出来。";
+                DlStatusText.Text = "请把「连接与读写」页切到「裸帧直连」——Loader 应答是 4 字节二进制，文本模式认不出来。";
                 return;
             }
 
@@ -218,7 +228,8 @@ namespace PoECommandTool
             }
 
             DownloadToDeviceButton.Content = "下载到设备";
-            DownloadToDeviceButton.IsEnabled = CanSend();
+            // 网络链路不支持：这里的下载要靠裸帧直连，控制台上发不出裸帧。
+            DownloadToDeviceButton.IsEnabled = CanSend() && _transportKind == TransportKind.Serial;
         }
 
     }

@@ -84,7 +84,7 @@ namespace PoECommandTool.Serial
     /// 串口会话：打开/读写、拆行、从设备输出里提取响应帧、自动解析、请求-响应配对。
     ///
     /// 这里一行业都不知道 WPF 的存在：所有事件都在读线程上触发，由界面层自己负责封送到 UI 线程。
-    /// 依赖 <see cref="ISerialTransport"/> 而不是 System.IO.Ports，所以整条链路可以用假传输层测试。
+    /// 依赖 <see cref="ITransport"/> 而不是 System.IO.Ports，所以整条链路可以用假传输层测试。
     /// </summary>
     public sealed class SerialSession : IDisposable
     {
@@ -112,7 +112,7 @@ namespace PoECommandTool.Serial
             public TaskCompletionSource<FrameEvent> Completion;
         }
 
-        private readonly ISerialTransport _transport;
+        private readonly ITransport _transport;
         private readonly LineAssembler _assembler = new LineAssembler();
         private readonly RawFrameScanner _scanner = new RawFrameScanner();
         private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
@@ -128,7 +128,7 @@ namespace PoECommandTool.Serial
         private bool _disposed;
         private int _selfEchoIgnored;
 
-        public SerialSession(ISerialTransport transport)
+        public SerialSession(ITransport transport)
         {
             if (transport == null) throw new ArgumentNullException("transport");
             _transport = transport;
@@ -202,10 +202,10 @@ namespace PoECommandTool.Serial
         /// <summary>某一行看着像响应、但识别规则没有采纳（第 1 个参数是原始行，第 2 个是原因）。</summary>
         public event Action<string, string> LineRejected;
 
-        /// <summary>串口故障（打开失败、读写失败、设备断开）。</summary>
-        public event Action<SerialFault> Fault;
+        /// <summary>链路故障（打开失败、读写失败、链路断开）。</summary>
+        public event Action<TransportFault> Fault;
 
-        public void Open(SerialPortSettings settings)
+        public void Open(TransportSettings settings)
         {
             if (_disposed) throw new ObjectDisposedException("SerialSession");
             if (_isOpen) throw new InvalidOperationException("串口已经打开了。");
@@ -335,7 +335,7 @@ namespace PoECommandTool.Serial
             await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                ISerialTransport transport = _transport;
+                ITransport transport = _transport;
                 await Task.Run(delegate { transport.Write(data, 0, data.Length); }, cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -347,7 +347,7 @@ namespace PoECommandTool.Serial
             {
                 // 写不进去说明链路已经不可用：把会话标记成关闭，免得轮询一直重试刷屏
                 _isOpen = false;
-                RaiseFault(SerialFaultKind.WriteFailed, "写串口失败：" + ex.Message, ex);
+                RaiseFault(TransportFaultKind.WriteFailed, "写串口失败：" + ex.Message, ex);
                 throw;
             }
             finally
@@ -538,7 +538,7 @@ namespace PoECommandTool.Serial
                         return;      // 我们自己关的串口，不算故障
 
                     _isOpen = false;
-                    RaiseFault(SerialFaultKind.DeviceRemoved, "读串口失败（设备可能已断开）：" + ex.Message, ex);
+                    RaiseFault(TransportFaultKind.LinkLost, "读串口失败（设备可能已断开）：" + ex.Message, ex);
                     return;
                 }
 
@@ -550,7 +550,7 @@ namespace PoECommandTool.Serial
                         return;      // 我们自己关的，正常收尾
 
                     _isOpen = false;
-                    RaiseFault(SerialFaultKind.DeviceRemoved, "串口已关闭（设备可能已断开）。", null);
+                    RaiseFault(TransportFaultKind.LinkLost, "串口已关闭（设备可能已断开）。", null);
                     return;
                 }
 
@@ -595,7 +595,7 @@ namespace PoECommandTool.Serial
                 catch (Exception ex)
                 {
                     _isOpen = false;
-                    RaiseFault(SerialFaultKind.ReadFailed,
+                    RaiseFault(TransportFaultKind.ReadFailed,
                         "处理收到的数据时出错，收包线程已停止：" + ex.Message, ex);
                     return;
                 }
@@ -759,13 +759,13 @@ namespace PoECommandTool.Serial
                 pending[i].Completion.TrySetException(new InvalidOperationException(reason));
         }
 
-        private void RaiseFault(SerialFaultKind kind, string message, Exception exception)
+        private void RaiseFault(TransportFaultKind kind, string message, Exception exception)
         {
-            Action<SerialFault> handler = Fault;
+            Action<TransportFault> handler = Fault;
             if (handler == null)
                 return;
 
-            var fault = new SerialFault { Kind = kind, Message = message, Exception = exception };
+            var fault = new TransportFault { Kind = kind, Message = message, Exception = exception };
             handler(fault);
         }
     }

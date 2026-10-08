@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using PoECommandTool;
+using PoECommandTool.Net;
 using PoECommandTool.Serial;
 
 namespace Rtl8239Verify
@@ -103,6 +104,10 @@ namespace Rtl8239Verify
             EventMarkerTests();
             LoaderAckScanTests();
             await DownloadRunnerTests();
+            TelnetNegotiationTests();
+            TelnetTransportTests();
+            await TelnetConsoleEndToEndTests();
+            ShellReadPumpTests();
 
             Console.WriteLine();
             Console.WriteLine(_failed == 0

@@ -14,7 +14,7 @@ using PoECommandTool.Serial;
 namespace PoECommandTool
 {
     /// <summary>
-    /// 「串口读写」页的采样与曲线绘制。
+    /// 「连接与读写」页的采样与曲线绘制。
     ///
     /// 线程约定：读线程（SerialSession 的回调）只往队列里塞东西；所有对曲线缓冲、
     /// 图例控件、日志框的操作都发生在两个 DispatcherTimer 的 Tick 里，也就是 UI 线程上。
@@ -346,15 +346,15 @@ namespace PoECommandTool
             Enqueue(_pendingLines, text, MaxPendingLines);
         }
 
-        private void OnSerialFault(SerialFault fault)
+        private void OnSerialFault(TransportFault fault)
         {
-            AppendLog("串口故障：" + fault.Message);
+            AppendLog("链路故障：" + fault.Message);
 
             // 读失败、写失败都说明链路已经不可用（会话也会把自己标记成关闭）：
             // 回到 UI 线程停轮询、改状态，免得一直重试刷屏。
-            if (fault.Kind != SerialFaultKind.DeviceRemoved
-                && fault.Kind != SerialFaultKind.ReadFailed
-                && fault.Kind != SerialFaultKind.WriteFailed)
+            if (fault.Kind != TransportFaultKind.LinkLost
+                && fault.Kind != TransportFaultKind.ReadFailed
+                && fault.Kind != TransportFaultKind.WriteFailed)
                 return;
 
             if (Dispatcher.HasShutdownStarted)
@@ -363,7 +363,7 @@ namespace PoECommandTool
             // 读线程上不能碰控件，回到 UI 线程处理
             Dispatcher.BeginInvoke(new Action(delegate
             {
-                StopPolling("串口链路出错，轮询已停止。");
+                StopPolling("链路出错，轮询已停止。");
                 UpdateSerialUi();
 
                 // 意外断开（拔线 / 链路出错）：如果这个端口再回来，自动重连

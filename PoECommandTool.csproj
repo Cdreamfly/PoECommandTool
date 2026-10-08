@@ -87,6 +87,17 @@
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
   </ItemGroup>
+  <!-- 本项目唯一的第三方依赖：SSH 不是能自己写的东西（真加密 + 密钥交换）。
+       选 2025.1.0 而不是 2026.0.0，是因为它在 net462/net48 下只拖
+       BouncyCastle.Cryptography + Microsoft.Extensions.Logging.Abstractions +
+       System.Formats.Asn1 三个包，而 2026.0.0 会再多一个 Microsoft.Bcl.Cryptography。
+
+       ⚠️ 加了它之后构建**必须先 restore**（见 README「构建」一节）：
+       裸的 /t:Rebuild 不会隐式还原包。ClickOnce 发布目录也要带上这几个 DLL，
+       否则干净机器上会在第一次连 SSH 时才 FileNotFoundException。 -->
+  <ItemGroup>
+    <PackageReference Include="SSH.NET" Version="2025.1.0" />
+  </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">
       <Generator>MSBuild:Compile</Generator>
@@ -161,7 +172,15 @@
     </Compile>
     <Compile Include="Serial\HexUtil.cs" />
     <Compile Include="Serial\LineAssembler.cs" />
-    <Compile Include="Serial\ISerialTransport.cs" />
+    <Compile Include="Serial\ITransport.cs" />
+    <Compile Include="Serial\SerialPortSettings.cs" />
+    <Compile Include="Serial\NetworkSettings.cs" />
+    <Compile Include="Serial\SwitchableTransport.cs" />
+    <Compile Include="Net\TelnetNegotiation.cs" />
+    <Compile Include="Net\TelnetTransport.cs" />
+    <Compile Include="Net\IShellChannel.cs" />
+    <Compile Include="Net\ShellReadPump.cs" />
+    <Compile Include="Net\SshTransport.cs" />
     <Compile Include="Serial\CommandTemplate.cs" />
     <Compile Include="Serial\ResponseLineExtractor.cs" />
     <Compile Include="Serial\RawFrameScanner.cs" />
@@ -215,8 +234,13 @@
     <None Include="PoECommandTool_TemporaryKey.pfx" />
     <Resource Include="POE.ico" />
   </ItemGroup>
+  <!-- 必须是 None（而不是 EmbeddedResource）：MSBuild 靠这个条目认出「应用配置文件」，
+       从而把 supportedRuntime 复制成 PoECommandTool.exe.config，并生成 AutoGenerateBindingRedirects
+       需要的绑定重定向。原先写成 EmbeddedResource，于是 $(AppConfig) 为空、重定向一个都没生成——
+       在没有第三方依赖时看不出来，加了 SSH.NET 那一串传递依赖之后就可能变成运行期的
+       FileLoadException（同一个程序集被不同版本引用）。 -->
   <ItemGroup>
-    <EmbeddedResource Include="App.config" />
+    <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.8">

@@ -10,7 +10,7 @@ using PoECommandTool.Serial;
 namespace Rtl8239Verify
 {
     /// <summary>不依赖硬件的串口传输层：字节排队等着被读，写入进日志。</summary>
-    internal sealed class FakeSerialTransport : ISerialTransport
+    internal sealed class FakeSerialTransport : ITransport
     {
         private const int ReadPollMs = 10;   // 模拟真实串口的读超时节奏，避免读循环空转
 
@@ -32,7 +32,7 @@ namespace Rtl8239Verify
             get { lock (_sync) return _written.ToArray(); }
         }
 
-        public void Open(SerialPortSettings settings)
+        public void Open(TransportSettings settings)
         {
             if (settings == null) throw new ArgumentNullException("settings");
             IsOpen = true;
@@ -96,11 +96,6 @@ namespace Rtl8239Verify
             }
             if (echo != null)
                 Feed(echo);
-        }
-
-        public string[] GetPortNames()
-        {
-            return new[] { "COM_TEST" };
         }
 
         /// <summary>把设备将要输出的字节排进缓冲区。</summary>
@@ -266,16 +261,16 @@ namespace Rtl8239Verify
 
             // --- 设备断开 ---
             var broken = new FakeSerialTransport();
-            var faults = new List<SerialFault>();
+            var faults = new List<TransportFault>();
             using (var session = new SerialSession(broken))
             {
-                session.Fault += delegate(SerialFault f) { lock (faults) faults.Add(f); };
+                session.Fault += delegate(TransportFault f) { lock (faults) faults.Add(f); };
                 session.Open(TestSettings());
                 broken.ThrowOnRead = true;
                 Check(WaitFor(delegate { lock (faults) return faults.Count > 0; }, 2000), "读出错时上报故障");
                 lock (faults)
                 {
-                    CheckEq(faults[0].Kind, SerialFaultKind.DeviceRemoved, "故障类型：设备断开");
+                    CheckEq(faults[0].Kind, TransportFaultKind.LinkLost, "故障类型：设备断开");
                     Check(faults[0].Message.Contains("断开"), "故障提示可读：" + faults[0].Message);
                 }
                 Check(!session.IsOpen, "故障后会话自己标记为已关闭");
