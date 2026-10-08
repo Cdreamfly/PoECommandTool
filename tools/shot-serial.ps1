@@ -11,8 +11,9 @@ public class WinApi2 {
 }
 "@
 
-$exe = 'C:\Users\ymz\source\repos\WpfApp1\bin\Release\PoECommandTool.exe'
-$outDir = 'C:\Users\ymz\source\repos\WpfApp1\tools\shots'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$exe = Join-Path $repoRoot 'bin\Release\PoECommandTool.exe'
+$outDir = Join-Path $repoRoot 'tools\shots'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $p = Start-Process -FilePath $exe -PassThru

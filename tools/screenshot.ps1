@@ -11,8 +11,9 @@ public class WinApi {
 }
 "@
 
-$exe = 'C:\Users\ymz\source\repos\WpfApp1\bin\Debug\PoECommandTool.exe'
-$outDir = 'C:\Users\ymz\source\repos\WpfApp1\tools\shots'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$exe = Join-Path $repoRoot 'bin\Debug\PoECommandTool.exe'
+$outDir = Join-Path $repoRoot 'tools\shots'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 function Save-Window([IntPtr]$handle, [string]$name) {

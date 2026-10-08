@@ -40,7 +40,8 @@ public class WinEnum {
 #     does not surface owned WPF windows there, which produced a false negative.
 
 $exe = $args[0]
-$outDir = 'C:\Users\ymz\source\repos\WpfApp1\tools\shots'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$outDir = Join-Path $repoRoot 'tools\shots'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $p = Start-Process -FilePath $exe -PassThru

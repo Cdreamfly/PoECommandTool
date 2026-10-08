@@ -16,7 +16,8 @@ $exe = $args[0]
 $outName = $args[1]
 $wantKey = if ($args.Count -gt 2) { $args[2] } else { $null }
 
-$outDir = 'C:\Users\ymz\source\repos\WpfApp1\tools\shots'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$outDir = Join-Path $repoRoot 'tools\shots'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $p = Start-Process -FilePath $exe -PassThru
