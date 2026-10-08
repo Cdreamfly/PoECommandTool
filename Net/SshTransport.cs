@@ -45,8 +45,18 @@ namespace PoECommandTool.Net
 
         private const int ConnectTimeoutSeconds = 10;
 
-        /// <summary>本次运行内已信任的主机密钥指纹。进程退出即丢。</summary>
-        private readonly HashSet<string> _trustedFingerPrints = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>
+        /// 本次运行内已信任的主机密钥指纹。
+        ///
+        /// **必须是静态的**：每点一次「连接」都会新建一个 <see cref="SshTransport"/> 实例，
+        /// 若做成实例字段，每次连接都会再弹一次确认框——而设计意图是「本次运行内记住」。
+        /// （2026-10-08 真机上就是被这个咬到的：断开后重连，确认框又冒出来，
+        /// 而界面那边整段连接在后台线程上等着它，看起来就像「点了连接没反应」。）
+        /// </summary>
+        private static readonly HashSet<string> TrustedFingerPrints =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        private static readonly object TrustedLock = new object();
 
         private SshClient _client;
         private ShellStream _stream;
@@ -247,10 +257,13 @@ namespace PoECommandTool.Net
         {
             string fingerprint = FingerprintOf(e);
 
-            if (_trustedFingerPrints.Contains(fingerprint))
+            lock (TrustedLock)
             {
-                e.CanTrust = true;
-                return;
+                if (TrustedFingerPrints.Contains(fingerprint))
+                {
+                    e.CanTrust = true;
+                    return;
+                }
             }
 
             Func<SshHostKey, bool> prompt = HostKeyPrompt;
@@ -272,7 +285,10 @@ namespace PoECommandTool.Net
             bool trust = prompt(info);
             e.CanTrust = trust;
             if (trust)
-                _trustedFingerPrints.Add(fingerprint);
+            {
+                lock (TrustedLock)
+                    TrustedFingerPrints.Add(fingerprint);
+            }
         }
 
         /// <summary>

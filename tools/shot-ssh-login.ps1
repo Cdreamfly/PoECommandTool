@@ -6,15 +6,20 @@
 #
 # HARD RULES: never use global mouse/keyboard; always filter windows by process id.
 # Keep this file PURE ASCII (PowerShell 5.1 reads BOM-less UTF-8 as GBK).
-# Assertions use ASCII substrings of the log only ("192.168.3.250", "cloudsvr"), because
-# the UI text is Chinese and this file must stay ASCII.
+# Assertions use ASCII substrings of the log only (the connect line carries "<user>@<host>:<port>",
+# and the remote shell's prompt carries its own hostname), because the UI text is Chinese and
+# this file must stay ASCII.
 #
 # NOTE: param() must be the FIRST statement in the file -- anything before it is a parse error.
+#
+# Usage:  shot-ssh-login.ps1 -Target <host> -User <name> -Password <pw> [-Port 22]
+# Target/User/Password carry NO defaults on purpose: this file is public, so no real
+# host address, account name or password may be baked into it.
 
 param(
+    [Parameter(Mandatory=$true)][string]$Target,
+    [Parameter(Mandatory=$true)][string]$User,
     [Parameter(Mandatory=$true)][string]$Password,
-    [string]$Target = '192.168.3.250',
-    [string]$User = 'chengmengfei',
     [int]$Port = 22
 )
 
@@ -209,28 +214,57 @@ Write-Host ('after disconnect, still alive: ' + (-not $p.HasExited))
 # --- reconnect WITHOUT re-typing the password ---
 # This is the regression the user hit: disconnect used to clear the password box, so the
 # next connect sent an empty password and the device answered "Permission denied (password)."
-$before = ([regex]::Matches($text, 'cloudsvr')).Count
+#
+# Take the baseline AFTER the disconnect has been logged. Taking it before lets output still
+# trickling in from the first connection's device-info read inflate the count, so the check
+# passes for the wrong reason (that false positive actually happened). Both the connect and
+# the disconnect lines carry "<user>@<host>:<port>", which is ASCII -- count those.
+$connectMark = 'ssh ' + $User + '@'
+$t = $text
+for ($i = 0; $i -lt 25; $i++) {
+    Start-Sleep -Milliseconds 400
+    $t = $log.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(-1)
+    if (([regex]::Matches($t, [regex]::Escape($connectMark))).Count -ge 2) { break }
+}
+$before = ([regex]::Matches($t, [regex]::Escape($connectMark))).Count
+Write-Host ('connect/disconnect lines before reconnect: ' + $before)
+
 $open3 = Find-ById 'OpenCloseButton'
-Write-Host ('--- reconnecting without re-typing the password (label=' + $open3.Current.Name + ') ---')
+Write-Host ('--- reconnecting without re-typing the password (label=' + $open3.Current.Name + ', enabled=' + $open3.Current.IsEnabled + ') ---')
 $open3.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 
-# the host key is already trusted in-process, so no dialog this time
+# The host key is trusted for the whole process now, so NO dialog should appear here.
+# If one does, the trust is not remembered -- report that explicitly rather than hanging.
+$dialogAgain = $false
+$t2 = $t
+$after = $before
 for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Milliseconds 400
+    foreach ($w in [WinApi4]::WindowsOf([uint32]$p.Id)) {
+        $parts = $w -split '\|'
+        if ([int64]$parts[0] -ne $handle.ToInt64() -and $parts[1] -eq '#32770') { $dialogAgain = $true }
+    }
+    if ($dialogAgain) { break }
     $t2 = $log.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(-1)
-    if (([regex]::Matches($t2, 'cloudsvr')).Count -gt $before) { break }
+    $after = ([regex]::Matches($t2, [regex]::Escape($connectMark))).Count
+    if ($after -gt $before) { break }
 }
-$text2 = $log.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(-1)
-$after = ([regex]::Matches($text2, 'cloudsvr')).Count
-Write-Host ('remote output lines before/after reconnect: ' + $before + ' -> ' + $after)
+if (-not $dialogAgain) {
+    $t2 = $log.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(-1)
+    $after = ([regex]::Matches($t2, [regex]::Escape($connectMark))).Count
+}
+Write-Host ('connect lines before/after reconnect: ' + $before + ' -> ' + $after)
+Write-Host '--- log tail after reconnect ---'
+foreach ($l in (($t2 -split "`n") | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -Last 6)) {
+    Write-Host ('  ' + $l.Trim())
+}
 
 $p.Refresh()
-Write-Host ('--- reconnect verdict ---')
-if ($after -gt $before -and -not $p.HasExited) {
-    Write-Host 'PASS: reconnect works without re-typing the password'
-} else {
-    Write-Host 'FAIL: reconnect did not produce new remote output'
-}
+Write-Host '--- reconnect verdict ---'
+if ($dialogAgain) { Write-Host 'FAIL: host key dialog appeared AGAIN on reconnect -- the trust is not remembered' }
+elseif ($p.HasExited) { Write-Host 'FAIL: process died during reconnect' }
+elseif ($after -gt $before) { Write-Host 'PASS: reconnect works without re-typing the password' }
+else { Write-Host 'FAIL: reconnect produced no new connect line' }
 
 $p.Kill()
 Write-Host 'test instance closed'
