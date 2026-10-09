@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>一条曲线在像素坐标下的样子。</summary>
     public sealed class ChartLine
@@ -278,9 +278,28 @@ namespace WpfApp1.Chart
         public static void ResolveWindow(TimeSpan span, TimeSpan offset, DateTime now, DateTime anchor,
             out DateTime from, out DateTime to)
         {
-            to = offset <= TimeSpan.Zero ? now : anchor - offset;
-            from = to - span;
+            ResolveWindow(span, offset, now, anchor, 1.0, out from, out to);
         }
+
+        /// <summary>
+        /// <paramref name="timeZoom"/>：时间轴的额外缩放倍数（1.0 = 就用窗口设定的跨度）。
+        /// 大于 1 是拉远（看得更久），小于 1 是拉近。下限见 <see cref="MinTimeZoom"/>。
+        /// </summary>
+        public static void ResolveWindow(TimeSpan span, TimeSpan offset, DateTime now, DateTime anchor,
+            double timeZoom, out DateTime from, out DateTime to)
+        {
+            to = offset <= TimeSpan.Zero ? now : anchor - offset;
+
+            double factor = timeZoom;
+            if (double.IsNaN(factor) || double.IsInfinity(factor) || factor <= 0)
+                factor = 1.0;
+            if (factor < MinTimeZoom) factor = MinTimeZoom;
+
+            from = to - TimeSpan.FromTicks((long)(span.Ticks * factor));
+        }
+
+        /// <summary>时间轴最多拉近到这个倍数：再近就只剩几个采样点了，没有意义。</summary>
+        public const double MinTimeZoom = 0.05;
 
         public static double MapX(DateTime time, DateTime from, DateTime to, double left, double width)        {
             double total = (to - from).Ticks;

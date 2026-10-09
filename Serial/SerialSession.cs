@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>一次发送请求。</summary>
     public sealed class SendRequest
@@ -21,6 +21,33 @@ namespace WpfApp1.Serial
         public static SendRequest Raw(byte[] frame)
         {
             return new SendRequest { Mode = SendMode.RawFrame, Frame = frame };
+        }
+    }
+
+    /// <summary>
+    /// 一次「发送 + 等响应」事务的持有凭证：用完 <see cref="Dispose"/> 即放锁。
+    ///
+    /// 为什么要这个：<see cref="SerialSession"/> 里的 _writeLock 只保证**字节**不交错，
+    /// 挡不住两条并发的查询在**事务**层交错——A 的响应可能落进 B 的等待窗口。
+    /// 响应配对（命令号 + 序列号）能挡住大部分误配，但那是「碰巧对」不是「设计对」，
+    /// 尤其 0xC0 系命令只按命令号配对（见 IsSequenceCorrelatable）。
+    /// </summary>
+    public sealed class SerialTransaction : IDisposable
+    {
+        private SemaphoreSlim _gate;
+
+        internal SerialTransaction(SemaphoreSlim gate)
+        {
+            _gate = gate;
+        }
+
+        public void Dispose()
+        {
+            // 幂等：重复 Dispose 不能多放一次，否则信号量会被撑开、互斥失效。
+            // 用 Exchange 而不是「读-判-写」，因为这是公开类型，无法假定只有一个线程会调它。
+            SemaphoreSlim gate = Interlocked.Exchange(ref _gate, null);
+            if (gate != null)
+                gate.Release();
         }
     }
 
@@ -57,7 +84,7 @@ namespace WpfApp1.Serial
     /// 串口会话：打开/读写、拆行、从设备输出里提取响应帧、自动解析、请求-响应配对。
     ///
     /// 这里一行业都不知道 WPF 的存在：所有事件都在读线程上触发，由界面层自己负责封送到 UI 线程。
-    /// 依赖 <see cref="ISerialTransport"/> 而不是 System.IO.Ports，所以整条链路可以用假传输层测试。
+    /// 依赖 <see cref="ITransport"/> 而不是 System.IO.Ports，所以整条链路可以用假传输层测试。
     /// </summary>
     public sealed class SerialSession : IDisposable
     {
@@ -85,10 +112,11 @@ namespace WpfApp1.Serial
             public TaskCompletionSource<FrameEvent> Completion;
         }
 
-        private readonly ISerialTransport _transport;
+        private readonly ITransport _transport;
         private readonly LineAssembler _assembler = new LineAssembler();
         private readonly RawFrameScanner _scanner = new RawFrameScanner();
         private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _transactionLock = new SemaphoreSlim(1, 1);
         private readonly object _sync = new object();
         private readonly object _assemblerSync = new object();
         private readonly List<Waiter> _waiters = new List<Waiter>();
@@ -100,7 +128,7 @@ namespace WpfApp1.Serial
         private bool _disposed;
         private int _selfEchoIgnored;
 
-        public SerialSession(ISerialTransport transport)
+        public SerialSession(ITransport transport)
         {
             if (transport == null) throw new ArgumentNullException("transport");
             _transport = transport;
@@ -109,6 +137,16 @@ namespace WpfApp1.Serial
 
         /// <summary>响应识别规则；可在运行中修改。</summary>
         public ResponseLineExtractor Extractor { get; private set; }
+
+        /// <summary>
+        /// 固件下载期间置为 true：这时设备只回 4 字节无校验和的 Loader 应答。
+        /// 下载结束后**记得置回 false**，否则正常帧会被当成应答拆散。
+        /// </summary>
+        public bool LoaderAckMode
+        {
+            get { return _scanner.LoaderAckMode; }
+            set { _scanner.LoaderAckMode = value; }
+        }
 
         /// <summary>
         /// 接收方式。文本模式走「按行拆包 + 识别规则」，裸帧模式走字节流同步。
@@ -140,11 +178,23 @@ namespace WpfApp1.Serial
             get { return _selfEchoIgnored; }
         }
 
+        /// <summary>
+        /// 裸帧扫描时跳过的字节数。持续增长说明一直对不上 12 字节帧的同步——多半是
+        /// 波特率、接线，或者设备根本没在回帧。
+        /// </summary>
+        public int DroppedBytes
+        {
+            get { return _scanner.DroppedByteCount; }
+        }
+
+        /// <summary>行缓冲溢出而丢掉的行数。设备刷得太快、或者一"行"长到不合理时会涨。</summary>
+        public int DroppedLines
+        {
+            get { return _assembler.DroppedLineCount; }
+        }
+
         /// <summary>每收到一行文本（已按 CR/LF 拆好）。</summary>
         public event Action<string> LineReceived;
-
-        /// <summary>每收到一段原始字节。</summary>
-        public event Action<byte[]> BytesReceived;
 
         /// <summary>每从某一行里提取到一帧（无论解析成功与否）。</summary>
         public event Action<FrameEvent> FrameReceived;
@@ -152,10 +202,10 @@ namespace WpfApp1.Serial
         /// <summary>某一行看着像响应、但识别规则没有采纳（第 1 个参数是原始行，第 2 个是原因）。</summary>
         public event Action<string, string> LineRejected;
 
-        /// <summary>串口故障（打开失败、读写失败、设备断开）。</summary>
-        public event Action<SerialFault> Fault;
+        /// <summary>链路故障（打开失败、读写失败、链路断开）。</summary>
+        public event Action<TransportFault> Fault;
 
-        public void Open(SerialPortSettings settings)
+        public void Open(TransportSettings settings)
         {
             if (_disposed) throw new ObjectDisposedException("SerialSession");
             if (_isOpen) throw new InvalidOperationException("串口已经打开了。");
@@ -285,7 +335,7 @@ namespace WpfApp1.Serial
             await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                ISerialTransport transport = _transport;
+                ITransport transport = _transport;
                 await Task.Run(delegate { transport.Write(data, 0, data.Length); }, cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -297,7 +347,7 @@ namespace WpfApp1.Serial
             {
                 // 写不进去说明链路已经不可用：把会话标记成关闭，免得轮询一直重试刷屏
                 _isOpen = false;
-                RaiseFault(SerialFaultKind.WriteFailed, "写串口失败：" + ex.Message, ex);
+                RaiseFault(TransportFaultKind.WriteFailed, "写串口失败：" + ex.Message, ex);
                 throw;
             }
             finally
@@ -306,6 +356,31 @@ namespace WpfApp1.Serial
             }
 
             RememberSent(request.Frame);
+        }
+
+        /// <summary>
+        /// 取事务锁：拿到之后，直到 <see cref="SerialTransaction.Dispose"/> 为止，
+        /// 本条链路上的**发送与等待**不会被另一个事务插进来。
+        ///
+        /// 调用方必须把「发送 + 等响应」整对包在 using 里，而不是只包发送：
+        /// 只包发送等于没包——真正要防的是响应落进别人的等待窗口。
+        /// **不要**在这段持锁区间里再调用本会话的发送（会自己等自己，死锁）。
+        /// </summary>
+        public async Task<SerialTransaction> BeginTransactionAsync(CancellationToken cancellationToken)
+        {
+            await _transactionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            // 新事务不继承上一笔事务遗留的帧。_recentFrames 的本意只是容纳「回包比等待者先到」
+            // ——发送返回与注册等待之间没有先后保证，而那个窗口只存在于一次事务内部。
+            // 跨事务复用它的后果很具体：上一次**超时之后**才到的回包会留在缓存里，
+            // 下一次读取一注册等待就立刻认领它，于是每次显示的都是上一次的数据，
+            // 时间戳却是新的。0x4B / 0xC0 / 0xCA 只按命令 ID 配对，尤其容易命中。
+            lock (_sync)
+            {
+                _recentFrames.Clear();
+            }
+
+            return new SerialTransaction(_transactionLock);
         }
 
         /// <summary>
@@ -377,6 +452,7 @@ namespace WpfApp1.Serial
             }
 
             _writeLock.Dispose();
+            _transactionLock.Dispose();
             _transport.Dispose();
         }
 
@@ -462,7 +538,7 @@ namespace WpfApp1.Serial
                         return;      // 我们自己关的串口，不算故障
 
                     _isOpen = false;
-                    RaiseFault(SerialFaultKind.DeviceRemoved, "读串口失败（设备可能已断开）：" + ex.Message, ex);
+                    RaiseFault(TransportFaultKind.LinkLost, "读串口失败（设备可能已断开）：" + ex.Message, ex);
                     return;
                 }
 
@@ -474,7 +550,7 @@ namespace WpfApp1.Serial
                         return;      // 我们自己关的，正常收尾
 
                     _isOpen = false;
-                    RaiseFault(SerialFaultKind.DeviceRemoved, "串口已关闭（设备可能已断开）。", null);
+                    RaiseFault(TransportFaultKind.LinkLost, "串口已关闭（设备可能已断开）。", null);
                     return;
                 }
 
@@ -491,26 +567,38 @@ namespace WpfApp1.Serial
                 var chunk = new byte[count];
                 Buffer.BlockCopy(buffer, 0, chunk, 0, count);
 
-                Action<byte[]> bytesHandler = BytesReceived;
-                if (bytesHandler != null)
-                    bytesHandler(chunk);
-
-                if (ReceiveMode == ReceiveMode.RawFrames)
+                // 这一段（拆包 + 分发 + 解析）原先**没有** try/catch。异常会逃离读循环，
+                // 把 ReadLoopTask 挂成 faulted，而那个 Task 没有人 await——于是它变成
+                // 「未观察的任务异常」，在 GC 之前悄无声息，而界面还写着「已打开」。
+                // 用户看到的是图表不再更新、轮询一直超时，却没有任何线索指向
+                // 「收包线程已经死了」。这里把它降级成一次故障通知并退出循环：
+                // 链路状态如实反映问题，界面能据此停下轮询并提示。
+                try
                 {
-                    IList<byte[]> frames = _scanner.Append(chunk, count);
-                    for (int i = 0; i < frames.Count; i++)
-                        HandleFrame(Inspect(frames[i], "(裸帧)", ByteOrder));
-                    continue;
-                }
+                    if (ReceiveMode == ReceiveMode.RawFrames)
+                    {
+                        IList<byte[]> frames = _scanner.Append(chunk, count);
+                        for (int i = 0; i < frames.Count; i++)
+                            HandleFrame(Inspect(frames[i], "(裸帧)", ByteOrder));
+                        continue;
+                    }
 
-                IList<string> lines;
-                lock (_assemblerSync)
+                    IList<string> lines;
+                    lock (_assemblerSync)
+                    {
+                        lines = _assembler.Append(chunk, count);
+                    }
+
+                    for (int i = 0; i < lines.Count; i++)
+                        HandleLine(lines[i]);
+                }
+                catch (Exception ex)
                 {
-                    lines = _assembler.Append(chunk, count);
+                    _isOpen = false;
+                    RaiseFault(TransportFaultKind.ReadFailed,
+                        "处理收到的数据时出错，收包线程已停止：" + ex.Message, ex);
+                    return;
                 }
-
-                for (int i = 0; i < lines.Count; i++)
-                    HandleLine(lines[i]);
             }
         }
 
@@ -671,13 +759,13 @@ namespace WpfApp1.Serial
                 pending[i].Completion.TrySetException(new InvalidOperationException(reason));
         }
 
-        private void RaiseFault(SerialFaultKind kind, string message, Exception exception)
+        private void RaiseFault(TransportFaultKind kind, string message, Exception exception)
         {
-            Action<SerialFault> handler = Fault;
+            Action<TransportFault> handler = Fault;
             if (handler == null)
                 return;
 
-            var fault = new SerialFault { Kind = kind, Message = message, Exception = exception };
+            var fault = new TransportFault { Kind = kind, Message = message, Exception = exception };
             handler(fault);
         }
     }

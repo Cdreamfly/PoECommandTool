@@ -1,6 +1,6 @@
 using System;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>
     /// 曲线名与键的拆解。

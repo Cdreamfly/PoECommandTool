@@ -1,6 +1,6 @@
 using System;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     // =====================================================================
     //  RTL8239 PoE 控制器响应帧解析库

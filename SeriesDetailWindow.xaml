@@ -1,4 +1,4 @@
-<Window x:Class="WpfApp1.SeriesDetailWindow"
+<Window x:Class="PoECommandTool.SeriesDetailWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="曲线详情"

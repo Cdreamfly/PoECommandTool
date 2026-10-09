@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 把一帧解析结果压成一行可读摘要，用于日志，例如：
@@ -9,7 +9,7 @@ namespace WpfApp1
     /// <c>0x42 端口0：检测中 / 有效PD / Class 4 / 2-pair</c>
     ///
     /// 两个来源：解析器已经算好的中文描述字段（<c>*Description</c>），
-    /// 以及 <see cref="WpfApp1.Chart.TelemetryExtractor"/> 认出来的带单位数值。
+    /// 以及 <see cref="PoECommandTool.Chart.TelemetryExtractor"/> 认出来的带单位数值。
     /// 两者都没有时返回 null（调用方就不打这一行）。
     /// </summary>
     public static class ResponseSummarizer
@@ -43,16 +43,16 @@ namespace WpfApp1
                 parts.Add(text);
             }
 
-            IList<WpfApp1.Chart.SeriesCandidate> numerics =
-                WpfApp1.Chart.TelemetryExtractor.Extract(parsed, tag);
+            IList<PoECommandTool.Chart.SeriesCandidate> numerics =
+                PoECommandTool.Chart.TelemetryExtractor.Extract(parsed, tag);
             for (int i = 0; i < numerics.Count; i++)
             {
-                WpfApp1.Chart.SeriesCandidate candidate = numerics[i];
+                PoECommandTool.Chart.SeriesCandidate candidate = numerics[i];
 
                 // 量级大就换成更好读的单位（与图表/图例一致：52977.9 mV → 52.98 V）
                 double scale = 1.0;
                 string unit = candidate.Unit;
-                WpfApp1.Chart.ChartMath.TryScaleUnit(candidate.Unit, candidate.Value, out scale, out unit);
+                PoECommandTool.Chart.ChartMath.TryScaleUnit(candidate.Unit, candidate.Value, out scale, out unit);
 
                 parts.Add(ShortName(candidate.Name, tag) + " "
                     + FormatValue(candidate.Value * scale) + " " + unit);

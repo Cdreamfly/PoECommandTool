@@ -5,7 +5,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>
     /// 把 <see cref="ChartMath"/> 算好的布局画到屏幕上。
@@ -27,6 +27,34 @@ namespace WpfApp1.Chart
         private static readonly Pen CrosshairPen = CreateDashedPen(Color.FromRgb(0x88, 0x88, 0x88), 1);
         private static readonly Brush LabelBrush = CreateBrush(Color.FromRgb(0x55, 0x55, 0x55));
         private static readonly Brush UnitBrush = CreateBrush(Color.FromRgb(0x1A, 0x73, 0xE8));
+
+        /// <summary>事件标记用的笔：竖直虚线，与网格线、曲线、阈值线都区分得开。</summary>
+        private static readonly Pen MarkerPen = CreateMarkerPen();
+
+        private static Pen CreateMarkerPen()
+        {
+            var pen = new Pen(CreateBrush(Color.FromRgb(0x6A, 0x1B, 0x9A)), 1.0);
+            pen.DashStyle = DashStyles.Dot;
+            pen.Freeze();
+            return pen;
+        }
+
+        /// <summary>阈值线用的笔：红色虚线，和网格线、曲线都区分得开。</summary>
+        private static readonly Pen ThresholdPen = CreateThresholdPen();
+
+        private static Pen CreateThresholdPen()
+        {
+            var pen = new Pen(CreateBrush(Color.FromRgb(0xD3, 0x2F, 0x2F)), 1.4);
+            pen.DashStyle = DashStyles.Dash;
+            pen.Freeze();
+            return pen;
+        }
+
+        /// <summary>
+        /// 阈值参考线：按单位给一条水平线（"W" → 30 表示功率带里画在 30W）。
+        /// 数值用**显示单位**，也就是用户在图例上看到的那个单位。
+        /// </summary>
+        public Dictionary<string, double> Thresholds { get; set; }
         private static readonly Brush RangeBrush = CreateBrush(Color.FromRgb(0x66, 0x66, 0x66));
         private static readonly Brush ReadoutBrush = CreateBrush(Color.FromRgb(0x22, 0x22, 0x22));
         private static readonly Brush ReadoutBackground = CreateBrush(Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
@@ -84,7 +112,7 @@ namespace WpfApp1.Chart
             {
                 _timeOffset = value;
                 _anchor = DateTime.Now;     // 拖动滑块时把窗口钉在此刻，画面才不会继续往前滑
-                InvalidateVisual();
+                InvalidateLayout();
             }
         }
 
@@ -127,15 +155,68 @@ namespace WpfApp1.Chart
             Action handler = ValueZoomChanged;
             if (handler != null)
                 handler();
-            InvalidateVisual();
+            InvalidateLayout();
         }
 
-        /// <summary>鼠标滚轮：直接缩放纵轴（时间轴用上面的时间窗下拉控制）。</summary>
+        /// <summary>
+        /// 鼠标滚轮缩纵轴；**按住 Ctrl** 则缩时间轴（横向缩放）。
+        ///
+        /// 时间轴原先只能用上面那个固定档位的下拉框（10 秒…1 小时），
+        /// 想在某个拐点附近看清楚做不到。Ctrl+滚轮给一个连续可调的倍数。
+        /// </summary>
         protected override void OnMouseWheel(MouseWheelEventArgs e)
         {
-            ZoomValue(e.Delta > 0 ? ZoomStep : 1.0 / ZoomStep);
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                // 向上滚 = 拉近（看得更短）
+                double factor = e.Delta > 0 ? 1.0 / ZoomStep : ZoomStep;
+                SetTimeZoom(TimeZoom * factor);
+            }
+            else
+            {
+                ZoomValue(e.Delta > 0 ? ZoomStep : 1.0 / ZoomStep);
+            }
+
             e.Handled = true;
         }
+
+        /// <summary>时间轴缩放倍数：1.0 = 就用时间窗下拉框设定的跨度。</summary>
+        public double TimeZoom
+        {
+            get { return _timeZoom; }
+        }
+
+        private double _timeZoom = 1.0;
+
+        public void SetTimeZoom(double zoom)
+        {
+            if (double.IsNaN(zoom) || double.IsInfinity(zoom) || zoom <= 0)
+                return;
+
+            if (zoom < ChartMath.MinTimeZoom) zoom = ChartMath.MinTimeZoom;
+            if (zoom > MaxTimeZoom) zoom = MaxTimeZoom;
+            if (Math.Abs(zoom - _timeZoom) < 1e-9)
+                return;
+
+            _timeZoom = zoom;
+            Action handler = TimeZoomChanged;
+            if (handler != null)
+                handler();
+
+            InvalidateLayout();
+        }
+
+        /// <summary>恢复成「就用时间窗下拉框的跨度」。</summary>
+        public void ResetTimeZoom()
+        {
+            SetTimeZoom(1.0);
+        }
+
+        /// <summary>时间轴缩放变了（用于更新界面上的显示）。</summary>
+        public event Action TimeZoomChanged;
+
+        /// <summary>最多拉远到这个倍数。</summary>
+        public const double MaxTimeZoom = 50.0;
 
         /// <summary>选中某条曲线（传 null 取消选中）。</summary>
         public void SelectCurve(string key)
@@ -153,7 +234,7 @@ namespace WpfApp1.Chart
         /// <summary>当前画面显示的时间范围（和 OnRender 用的是同一套算法）。</summary>
         public void ResolveVisibleWindow(out DateTime from, out DateTime to)
         {
-            ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, out from, out to);
+            ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, _timeZoom, out from, out to);
         }
 
         /// <summary>双击曲线：找出离光标最近的那条（够近才算）。</summary>
@@ -210,6 +291,45 @@ namespace WpfApp1.Chart
             return best;
         }
 
+        /// <summary>上一次算出来的布局。鼠标移动时直接复用它，不重算。</summary>
+        private ChartLayout _cachedLayout;
+
+        /// <summary>布局失效：数据、时间窗、缩放或尺寸变了，下一帧必须重算。</summary>
+        private bool _layoutDirty = true;
+
+        /// <summary>
+        /// 数据 / 时间窗 / 缩放 / 尺寸变了 —— 下一帧要重算布局。
+        ///
+        /// 与 <see cref="UIElement.InvalidateVisual"/> 的区别就在这里：后者只重画，
+        /// 而重画时如果不复用布局，就会在**每一次鼠标移动**上把 <see cref="ChartMath.Build"/>
+        /// 重跑一遍。那个函数按时间窗从最旧一个采样扫起，满缓冲下 192 条曲线约
+        /// 3.8M 次操作 ≈ 50–150ms，指针每秒 60–125 次事件——界面会被它拖住，
+        /// 而轮询的续体是 dispatcher 投递的，于是采样节拍也跟着抖。
+        /// </summary>
+        public void InvalidateLayout()
+        {
+            _layoutDirty = true;
+            InvalidateVisual();
+        }
+
+        /// <summary>时间轴上的事件标记（端口断开 / 故障等）。</summary>
+        public IList<ChartMarker> Markers { get; set; }
+
+        /// <summary>标记多到这个数以上就不再逐个写标签，免得糊成一片。</summary>
+        public const int MaxMarkerLabels = 20;
+
+        /// <summary>阈值线变了：只需重画，布局不用重算。</summary>
+        public void InvalidateThresholds()
+        {
+            InvalidateVisual();
+        }
+
+        protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+        {
+            _layoutDirty = true;
+            base.OnRenderSizeChanged(sizeInfo);
+        }
+
         /// <summary>鼠标移动时画出十字准线，直接显示那一刻每条曲线的数值。</summary>
         protected override void OnMouseMove(MouseEventArgs e)
         {
@@ -240,12 +360,19 @@ namespace WpfApp1.Chart
             if (plotWidth <= 10 || plotHeight <= 10)
                 return;
 
-            DateTime from;
-            DateTime to;
-            ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, out from, out to);
+            ChartLayout layout = _cachedLayout;
+            if (_layoutDirty || layout == null)
+            {
+                DateTime from;
+                DateTime to;
+                ChartMath.ResolveWindow(Window, TimeOffset, DateTime.Now, _anchor, _timeZoom, out from, out to);
 
-            ChartLayout layout = ChartMath.Build(Series, from, to,
-                plotLeft, plotTop, plotWidth, plotHeight, MaxPointsPerLine, ValueZoom);
+                layout = ChartMath.Build(Series, from, to,
+                    plotLeft, plotTop, plotWidth, plotHeight, MaxPointsPerLine, ValueZoom);
+                _cachedLayout = layout;
+                _layoutDirty = false;
+            }
+
             CurrentLayout = layout;     // 命中测试与统计取窗口都要用
 
             if (layout.Bands.Count == 0)
@@ -288,6 +415,24 @@ namespace WpfApp1.Chart
                         plotLeft - 6, y, pixelsPerDip, TextAlignment.Right);
                 }
 
+                // 阈值参考线：落在本带显示范围内的才画（超出范围时画在带外没有意义）
+                double? threshold = ThresholdSet.For(Thresholds, displayUnit);
+                if (threshold.HasValue)
+                {
+                    double raw = threshold.Value / displayScale;
+                    if (raw >= band.Min && raw <= band.Max)
+                    {
+                        double ty = ChartMath.MapY(raw, band.Min, band.Max, band.PlotTop, band.PlotHeight);
+                        drawingContext.DrawLine(ThresholdPen,
+                            new Point(plotLeft, ty), new Point(plotLeft + plotWidth, ty));
+
+                        // 标签放**左侧**：右侧是「变化 x」读数常驻的地方，压上去会两边都看不清
+                        DrawLabel(drawingContext,
+                            ChartMath.FormatTick(threshold.Value, step) + displayUnit,
+                            plotLeft + 4, ty, pixelsPerDip, TextAlignment.Left);
+                    }
+                }
+
                 // 单位：有页眉就放页眉左侧；挤得没页眉时放右上角，避免和刻度标签重叠
                 var unitText = new FormattedText(displayUnit, CultureInfo.InvariantCulture,
                     FlowDirection.LeftToRight, LabelTypeface, LabelFontSize, UnitBrush, pixelsPerDip);
@@ -319,6 +464,9 @@ namespace WpfApp1.Chart
             drawingContext.DrawLine(AxisPen, new Point(plotLeft, plotTop), new Point(plotLeft, plotTop + plotHeight));
             drawingContext.DrawLine(AxisPen, new Point(plotLeft, plotTop + plotHeight),
                 new Point(plotLeft + plotWidth, plotTop + plotHeight));
+
+            // 事件标记：竖直虚线。放在曲线之前画，曲线压在上面也不会被它盖住。
+            DrawMarkers(drawingContext, layout, plotLeft, plotTop, plotWidth, plotHeight, pixelsPerDip);
 
             // 先画没选中的，再画选中的：选中的那条加粗并压在最上面，一眼能找到。
             // 每画一个子图都要把它裁在自己的绘图区里——放大后超出量程的点会被映射到格子外面，
@@ -494,6 +642,41 @@ namespace WpfApp1.Chart
             }
             geometry.Freeze();      // 冻结后 WPF 可以缓存几何，重绘开销小很多
             drawingContext.DrawGeometry(null, GetPen(line.ColorHex, thickness), geometry);
+        }
+
+        /// <summary>
+        /// 把事件标记画成竖直虚线；标记不多时顺带写上标签。
+        ///
+        /// 落在当前时间窗外的直接跳过——拖动回看时窗口会移出标记的范围，
+        /// 不判的话它们会挤在边缘上。
+        /// </summary>
+        private void DrawMarkers(DrawingContext drawingContext, ChartLayout layout,
+            double plotLeft, double plotTop, double plotWidth, double plotHeight, double pixelsPerDip)
+        {
+            IList<ChartMarker> markers = Markers;
+            if (markers == null || markers.Count == 0 || layout.Bands.Count == 0)
+                return;
+
+            bool withLabels = markers.Count <= MaxMarkerLabels;
+            DateTime from;
+            DateTime to;
+            ResolveVisibleWindow(out from, out to);
+            long span = to.Ticks - from.Ticks;
+            if (span <= 0)
+                return;
+
+            for (int i = 0; i < markers.Count; i++)
+            {
+                ChartMarker marker = markers[i];
+                if (marker.Time < from || marker.Time > to)
+                    continue;
+
+                double x = plotLeft + plotWidth * ((marker.Time.Ticks - from.Ticks) / (double)span);
+                drawingContext.DrawLine(MarkerPen, new Point(x, plotTop), new Point(x, plotTop + plotHeight));
+
+                if (withLabels)
+                    DrawLabel(drawingContext, marker.Label, x + 2, plotTop + 1, pixelsPerDip, TextAlignment.Left);
+            }
         }
 
         private void DrawLabel(DrawingContext drawingContext, string text, double x, double y,

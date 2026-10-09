@@ -1,4 +1,4 @@
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 程序版本号——**要改版本只改这里的 <see cref="Number"/> 一处**。
@@ -10,9 +10,9 @@ namespace WpfApp1
     public static class AppVersion
     {
         /// <summary>版本号本体（三段式）。</summary>
-        public const string Number = "1.1.0";
+        public const string Number = "1.3.1";
 
-        /// <summary>带 v 前缀的显示形式，例如 "v1.1.0"。</summary>
+        /// <summary>带 v 前缀的显示形式，例如 "v1.3.1"。</summary>
         public static string Display
         {
             get { return "v" + Number; }
@@ -21,10 +21,10 @@ namespace WpfApp1
         /// <summary>窗口标题用的完整名称。</summary>
         public static string Title
         {
-            get { return "RTL8239 PoE Command Tool " + Display; }
+            get { return "PoECommandTool " + Display; }
         }
 
-        /// <summary>关于框里显示的形式，例如 "VER 1.1.0"。</summary>
+        /// <summary>关于框里显示的形式，例如 "VER 1.3.1"。</summary>
         public static string Full
         {
             get { return "VER " + Number; }

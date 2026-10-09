@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 曲线详情窗口：显示某条曲线在当前时间窗内的统计量（最大/最小/平均/峰峰值/标准差等）。

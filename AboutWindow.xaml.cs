@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 using System.Windows;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// 关于对话框：显示应用名称、版本、版权等信息。

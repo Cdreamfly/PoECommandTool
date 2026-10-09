@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>下载类型：App 分区（0xC0-80~83）或 Firmware（0xCA）。</summary>
     public enum DownloadMode

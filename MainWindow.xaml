@@ -1,12 +1,12 @@
-<Window x:Class="WpfApp1.MainWindow"
+<Window x:Class="PoECommandTool.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:WpfApp1"
-        xmlns:chart="clr-namespace:WpfApp1.Chart"
+        xmlns:local="clr-namespace:PoECommandTool"
+        xmlns:chart="clr-namespace:PoECommandTool.Chart"
         mc:Ignorable="d"
-        Title="RTL8239 PoE Command Tool" Height="700" Width="1080"
+        Title="PoECommandTool" Height="700" Width="1080"
         Icon="POE.ico"
         WindowStartupLocation="CenterScreen">
 
@@ -16,6 +16,69 @@
                 <MenuItem Header="关于..." Click="About_Click"/>
             </MenuItem>
         </Menu>
+        <!-- 连接：提到页签上方，任何页签都能连/断。
+             三种链路：本机串口、以及通过网络登录设备调试控制台的 Telnet / SSH。
+             命令组装页的「发送并解析」和固件下载页的「下载到设备」都要它，
+             把开关埋在其中一个页签里，用别的页签时够不着。 -->
+        <Border DockPanel.Dock="Top" Margin="8,8,8,0" Padding="6"
+                BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="3" Background="#FAFAFA">
+            <StackPanel>
+                <WrapPanel Orientation="Horizontal">
+                    <TextBlock Text="连接方式" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="TransportCombo" Width="96" Height="26" Margin="6,0,0,0"
+                              VerticalAlignment="Center"
+                              SelectionChanged="TransportCombo_SelectionChanged"/>
+                    <Button x:Name="OpenCloseButton" Content="连接" Width="96" Height="26" Margin="16,0,0,0"
+                            VerticalAlignment="Center" Click="OpenClose_Click"/>
+                    <TextBlock x:Name="SerialStatusText" Text="未打开" VerticalAlignment="Center"
+                               Margin="12,0,0,0" Foreground="#888888"/>
+                    <TextBlock x:Name="DropStatsText" VerticalAlignment="Center"
+                               Margin="16,0,0,0" Foreground="#C62828" FontWeight="Bold"/>
+                </WrapPanel>
+
+                <!-- 仅串口：端口与线路参数 -->
+                <WrapPanel x:Name="SerialOptionsPanel" Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Text="端口" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="PortCombo" Width="110" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <Button x:Name="RefreshPortsButton" Content="刷新" Width="56" Height="26" Margin="6,0,0,0"
+                            VerticalAlignment="Center" Click="RefreshPorts_Click"/>
+                    <CheckBox x:Name="AutoReconnectCheck" Content="自动重连" IsChecked="True"
+                              VerticalAlignment="Center" Margin="10,0,0,0"
+                              ToolTip="拔线或链路出错导致串口关闭后，一旦同一个端口重新出现就自动打开并重读设备信息。默认开着；不想让它自己连就取消勾选。"/>
+                    <TextBlock Text="波特率" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <ComboBox x:Name="BaudCombo" Width="90" Height="26" IsEditable="True" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="数据位" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <ComboBox x:Name="DataBitsCombo" Width="56" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="校验" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <ComboBox x:Name="ParityCombo" Width="78" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="停止位" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <ComboBox x:Name="StopBitsCombo" Width="60" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                </WrapPanel>
+
+                <!-- 仅网络：主机与登录信息。密码只留在内存里，断开就清掉。 -->
+                <WrapPanel x:Name="NetworkOptionsPanel" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
+                    <TextBlock Text="主机" VerticalAlignment="Center"/>
+                    <TextBox x:Name="HostBox" Width="140" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="端口" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <TextBox x:Name="NetPortBox" Width="56" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="用户名" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <TextBox x:Name="UserBox" Width="100" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"
+                             ToolTip="留空表示设备控制台不需要登录，连上就直接收发命令。"/>
+                    <TextBlock Text="密码" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <PasswordBox x:Name="PasswordInput" Width="100" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <StackPanel x:Name="SshKeyPanel" Orientation="Horizontal" Visibility="Collapsed">
+                        <TextBlock Text="私钥" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                        <TextBox x:Name="KeyBox" Width="180" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 ToolTip="留空则用上面的口令认证；填了就用这个私钥文件（OpenSSH / PuTTY 格式）。"/>
+                        <Button x:Name="KeyBrowseButton" Content="…" Width="32" Height="26" Margin="6,0,0,0"
+                                VerticalAlignment="Center" Click="KeyBrowse_Click"/>
+                    </StackPanel>
+                    <TextBlock x:Name="NetHintText" VerticalAlignment="Center" Margin="16,0,0,0"
+                               Foreground="#E65100" TextWrapping="Wrap"/>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
         <TabControl Margin="8">
         <!-- ============================================================= -->
         <!-- 页 1：命令组装 -->
@@ -63,9 +126,10 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*" MinHeight="100"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*" MinHeight="140"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock x:Name="CmdTitle" Grid.Row="0" FontSize="20" FontWeight="Bold"
@@ -88,12 +152,25 @@
                                  VerticalContentAlignment="Center"/>
                         <Button x:Name="GenButton" Content="生成命令" Width="110" Height="26"
                                 Margin="16,0,0,0" VerticalAlignment="Center" Click="Generate_Click"/>
+                        <Button x:Name="SendParseButton" Content="发送并解析" Width="110" Height="26"
+                                Margin="10,0,0,0" VerticalAlignment="Center" IsEnabled="False"
+                                Click="SendParse_Click"
+                                ToolTip="按「连接与读写」页当前的方式把上面的帧发出去，并把回包自动解析出来。链路未连接、或设备信息正在读取时不可用；发送过程中这颗按钮会变成「取消」。多条时序列号自「序列号」框的值起逐条递增。"/>
+                        <TextBlock x:Name="SendStatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Foreground="#888888"/>
                     </StackPanel>
 
                     <GroupBox Grid.Row="4" Header="生成的命令帧（十六进制）" Margin="0,10,0,0" Padding="8">
                         <TextBox x:Name="ResultBox" IsReadOnly="True" FontFamily="Consolas" FontSize="14"
                                  TextWrapping="Wrap" MinHeight="64"
                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+                    </GroupBox>
+
+                    <GroupBox Grid.Row="5" Header="响应（链路自动解析）" Margin="0,10,0,0" Padding="8">
+                        <TextBox x:Name="SendRespBox" IsReadOnly="True" FontFamily="Consolas" FontSize="13"
+                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 Text="链路连上后点「发送并解析」，回包会在这里解码。没连接时请用「生成命令」，它只拼帧、不发出去。"/>
                     </GroupBox>
                 </Grid>
             </Grid>
@@ -159,9 +236,11 @@
                 <StackPanel Grid.Row="0" Orientation="Horizontal">
                     <TextBlock Text="下载类型：" VerticalAlignment="Center"/>
                     <RadioButton x:Name="DownloadTypeApp" Content="App 下载 (0xC0-80~83)"
-                                 IsChecked="True" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                 IsChecked="True" VerticalAlignment="Center" Margin="8,0,0,0"
+                                 Checked="DownloadType_Checked"/>
                     <RadioButton x:Name="DownloadTypeFw" Content="Firmware 下载 (0xCA)"
-                                 VerticalAlignment="Center" Margin="16,0,0,0"/>
+                                 VerticalAlignment="Center" Margin="16,0,0,0"
+                                 Checked="DownloadType_Checked"/>
                     <TextBlock Text="序列号" VerticalAlignment="Center" Margin="28,0,0,0"/>
                     <TextBox x:Name="DlSeqText" Text="01" Width="60" Height="26" Margin="6,0,0,0"
                              VerticalAlignment="Center" FontFamily="Consolas"
@@ -176,11 +255,16 @@
                 </DockPanel>
 
                 <DockPanel Grid.Row="2" Margin="0,10,0,0">
+                    <Button x:Name="DownloadToDeviceButton" DockPanel.Dock="Right" Content="下载到设备"
+                            Width="110" Height="26" Margin="8,0,0,0" IsEnabled="False"
+                            Click="DownloadToDevice_Click"
+                            ToolTip="把上面这些帧真的发给设备（需串口链路、且「连接与读写」页要处于「裸帧直连」）。途中失败即停，不会继续往后写。本工具不会替你跳转 Loader。"/>
                     <Button x:Name="GenDlButton" DockPanel.Dock="Right" Content="生成下载帧"
                             Width="130" Height="26" Click="GenDownload_Click"/>
+                    <TextBlock x:Name="DlStatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="#888888"/>
                     <TextBlock x:Name="DlHint" TextWrapping="Wrap" LineHeight="20" Foreground="#555555"
-                               VerticalAlignment="Center"
-                               Text="按 32 字节分帧，自动计算 64K 块号（SUB）与偏移。App 下载固件需 4 字节对齐。"/>
+                               VerticalAlignment="Center"/>
                 </DockPanel>
 
                 <GroupBox Grid.Row="3" Header="下载命令帧" Margin="0,10,0,0" Padding="8">
@@ -191,12 +275,11 @@
             </Grid>
         </TabItem>
         <!-- ============================================================= -->
-        <!-- 页 4：串口读写 -->
+        <!-- 页 4：连接与读写 -->
         <!-- ============================================================= -->
-        <TabItem Header="串口读写">
+        <TabItem Header="连接与读写">
             <Grid x:Name="SerialTabGrid" Margin="8">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -205,29 +288,9 @@
                     <RowDefinition Height="130" MinHeight="70"/>
                 </Grid.RowDefinitions>
 
-                <!-- 串口参数 -->
-                <!-- 串口参数：所有输入控件统一高 26、标签前距 16、控件前距 6，整行才对得齐 -->
-                <WrapPanel Grid.Row="0" Orientation="Horizontal">
-                    <TextBlock Text="串口" VerticalAlignment="Center"/>
-                    <ComboBox x:Name="PortCombo" Width="110" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <Button x:Name="RefreshPortsButton" Content="刷新" Width="56" Height="26" Margin="6,0,0,0"
-                            VerticalAlignment="Center" Click="RefreshPorts_Click"/>
-                    <TextBlock Text="波特率" VerticalAlignment="Center" Margin="16,0,0,0"/>
-                    <ComboBox x:Name="BaudCombo" Width="90" Height="26" IsEditable="True" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="数据位" VerticalAlignment="Center" Margin="16,0,0,0"/>
-                    <ComboBox x:Name="DataBitsCombo" Width="56" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="校验" VerticalAlignment="Center" Margin="16,0,0,0"/>
-                    <ComboBox x:Name="ParityCombo" Width="78" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="停止位" VerticalAlignment="Center" Margin="16,0,0,0"/>
-                    <ComboBox x:Name="StopBitsCombo" Width="60" Height="26" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                    <Button x:Name="OpenCloseButton" Content="打开串口" Width="96" Height="26" Margin="16,0,0,0"
-                            VerticalAlignment="Center" Click="OpenClose_Click"/>
-                    <TextBlock x:Name="SerialStatusText" Text="未打开" VerticalAlignment="Center"
-                               Margin="12,0,0,0" Foreground="#888888"/>
-                </WrapPanel>
 
                 <!-- 发送方式 -->
-                <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+                <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,10,0,0">
                     <RadioButton x:Name="ModeTextRadio" Content="文本命令模板" IsChecked="True"
                                  VerticalAlignment="Center" Checked="SendMode_Checked"/>
                     <RadioButton x:Name="ModeRawRadio" Content="裸帧直连" VerticalAlignment="Center"
@@ -244,7 +307,7 @@
                 </WrapPanel>
 
                 <!-- 手动帧与识别规则：内容太宽，明确排成两行，别让 WrapPanel 把「字节序」拆散 -->
-                <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                <StackPanel Grid.Row="1" Margin="0,10,0,0">
                     <WrapPanel Orientation="Horizontal">
                         <TextBlock Text="手动发送帧（十六进制）" VerticalAlignment="Center"/>
                         <TextBox x:Name="ManualFrameBox" Width="320" Height="26" FontFamily="Consolas"
@@ -261,10 +324,34 @@
                                   ToolTip="识别规则不匹配时，直接取这一行里前 12 个十六进制字节。默认关闭，因为设备回显行里也有帧，容易被误当成响应。"/>
                         <TextBlock x:Name="PatternHint" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="#888888"/>
                     </WrapPanel>
+
+                    <!-- 设备信息：身份/诊断类命令，点一次读一次，不参与轮询。
+                         特意放在行 2（而不是轮询设置那一行）：行 3 是「最大化」时特意保留的行，
+                         放那儿会让曲线永远腾不出整页空间。 -->
+                    <GroupBox Header="设备信息（手工读取，不轮询）" Margin="0,10,0,0">
+                        <StackPanel>
+                            <WrapPanel>
+                                <Button x:Name="DeviceInfoUpdateButton" Content="更新" Width="72" Height="26"
+                                        Click="DeviceInfoUpdate_Click"
+                                        ToolTip="读取设备身份、配置版本、芯片类型与地址、全局参数、复位原因。读 0x47 时不会清除设备上的复位记录。轮询进行中时不可用；读取过程中这颗按钮会变成「取消」。"/>
+                                <TextBlock x:Name="DeviceInfoStatusText" VerticalAlignment="Center"
+                                           Margin="12,0,0,0" Foreground="#888888" Text="尚未读取"/>
+                                <Button x:Name="DeviceInfoCopyButton" Content="复制全部" Width="82" Height="26"
+                                        Margin="10,0,0,0" VerticalAlignment="Center" IsEnabled="False"
+                                        Click="DeviceInfoCopy_Click"
+                                        ToolTip="把这次读到的全部内容摊成纯文本放进剪贴板，便于贴进工单或邮件。逐字段选中复制太慢时用这个。"/>
+                            </WrapPanel>
+                            <Border BorderBrush="#DDDDDD" BorderThickness="1" Margin="0,6,0,0" MaxHeight="150">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="DeviceInfoPanel" Margin="6"/>
+                                </ScrollViewer>
+                            </Border>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
 
                 <!-- 轮询设置 -->
-                <Grid Grid.Row="3" Margin="0,10,0,0">
+                <Grid Grid.Row="2" Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="330"/>
                         <ColumnDefinition Width="*"/>
@@ -283,7 +370,8 @@
                         <WrapPanel>
                             <TextBlock Text="间隔(ms)" VerticalAlignment="Center"/>
                             <TextBox x:Name="IntervalBox" Text="1000" Width="56" Height="26" Margin="6,0,0,0"
-                                     FontFamily="Consolas" VerticalContentAlignment="Center"/>
+                                     FontFamily="Consolas" VerticalContentAlignment="Center"
+                                     ToolTip="两轮之间的目标间隔。注意它只是目标：一轮要走完所有勾选的命令，每条之间还要留「命令间隔」，所以一轮的实际耗时可能远大于它——那种情况下这个值不生效。开轮询时日志里会报出实际的一轮耗时。"/>
                             <TextBlock Text="超时(ms)" VerticalAlignment="Center" Margin="16,0,0,0"/>
                             <TextBox x:Name="TimeoutBox" Text="1500" Width="56" Height="26" Margin="6,0,0,0"
                                      FontFamily="Consolas" VerticalContentAlignment="Center"
@@ -308,9 +396,9 @@
                 </Grid>
 
                 <!-- 曲线 -->
-                <Grid Grid.Row="4" Margin="0,10,0,0">
+                <Grid Grid.Row="3" Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="330"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
@@ -322,6 +410,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -351,6 +440,7 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0" Text="时间窗" VerticalAlignment="Center"/>
@@ -363,6 +453,9 @@
                             <Button Grid.Column="3" x:Name="ClearChartButton" Content="清空" Width="48" Height="26"
                                     Margin="6,0,0,0" Click="ClearChart_Click"
                                     ToolTip="清空所有曲线，重新开始采集"/>
+                            <Button Grid.Column="4" x:Name="PauseChartButton" Content="暂停" Width="48" Height="26"
+                                    Margin="6,0,0,0" Click="PauseChart_Click"
+                                    ToolTip="暂停刷新曲线（采样不停，数据照常进缓冲）。想看清某一屏时用它，免得画面一直在走。再点一次继续。"/>
                         </Grid>
                         <WrapPanel Grid.Row="4" Margin="0,6,0,0">
                             <TextBlock Text="纵轴" VerticalAlignment="Center"/>
@@ -373,11 +466,21 @@
                                     Margin="6,0,0,0" Click="ZoomOut_Click"/>
                             <Button x:Name="ZoomAutoButton" Content="自动" Width="52" Height="26"
                                     Margin="6,0,0,0" Click="ZoomAuto_Click"
-                                    ToolTip="恢复成按数据范围自动铺满"/>
+                                    ToolTip="纵轴与时间轴都恢复成自动（纵轴按数据范围铺满、时间轴用上面选的跨度）"/>
                             <TextBlock x:Name="ZoomText" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="#888888"/>
                         </WrapPanel>
                         <TextBlock Grid.Row="5" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#888888"
-                                   Text="滚轮缩放纵轴；单击图例选中曲线（加粗），双击看详细统计。"/>
+                                   Text="滚轮缩纵轴；Ctrl+滚轮缩时间轴。"/>
+
+                        <WrapPanel Grid.Row="6" Margin="0,6,0,0">
+                            <TextBlock Text="阈值线" VerticalAlignment="Center"/>
+                            <TextBox x:Name="ThresholdBox" Width="120" Height="26" Margin="6,0,0,0"
+                                     FontFamily="Consolas" VerticalContentAlignment="Center"
+                                     TextChanged="ThresholdBox_TextChanged"
+                                     ToolTip="按单位画一条水平参考线，例如 W=30, ℃=70（数值用图例上显示的单位）。留空则不画。"/>
+                            <TextBlock x:Name="ThresholdHint" VerticalAlignment="Center" Margin="8,0,0,0"
+                                       Foreground="#888888" FontSize="11"/>
+                        </WrapPanel>
                     </Grid>
 
                     <Border Grid.Column="1" Grid.Row="0" BorderBrush="#DDDDDD" BorderThickness="1" Margin="10,0,0,0">
@@ -399,18 +502,53 @@
                 </Grid>
 
                 <!-- 分隔条：上下拖动可以调整「曲线」与「日志」的高度分配 -->
-                <GridSplitter Grid.Row="5" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                <GridSplitter Grid.Row="4" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                               Background="#DDDDDD" ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
                               ToolTip="上下拖动，给曲线图腾地方"/>
 
                 <!-- 日志 -->
-                <GroupBox Grid.Row="6" Margin="0,10,0,0" Padding="6"
-                          Header="收发日志（[设备] 串口原样输出 · [发送] 工具发出 · [识别] 识别出的帧 · [解析] 解析结果 · [工具] 工具提示）">
+                <GroupBox Grid.Row="5" Margin="0,10,0,0" Padding="6"
+                          Header="收发日志（[设备] 链路原样输出 · [发送] 工具发出 · [识别] 识别出的帧 · [解析] 解析结果 · [工具] 工具提示）">
                     <TextBox x:Name="SerialLogBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
                              TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Auto"/>
                 </GroupBox>
             </Grid>
+        </TabItem>
+
+        <!-- ============================================================= -->
+        <!-- 页 5：通讯日志 -->
+        <!-- ============================================================= -->
+        <TabItem Header="通讯日志" x:Name="CommLogTabItem">
+            <DockPanel Margin="8">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Foreground="#888888"
+                               Text="与「连接与读写」页底部那个日志框是同一份内容；这里能看满整页，还可以按类别筛选、复制、存盘。"/>
+                    <CheckBox x:Name="CommLogAutoScrollCheck" DockPanel.Dock="Right" Content="自动滚动"
+                              IsChecked="True" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                </DockPanel>
+
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <TextBlock Text="只看：" VerticalAlignment="Center"/>
+                    <StackPanel x:Name="LogFilterPanel" Orientation="Horizontal" VerticalAlignment="Center"/>
+                    <Button x:Name="LogCopyButton" Content="复制全部" Width="82" Height="24"
+                            Margin="16,0,0,0" Click="LogCopy_Click"
+                            ToolTip="把当前筛选下看得见的日志整份放进剪贴板。"/>
+                    <Button x:Name="LogSaveButton" Content="保存到文件…" Width="110" Height="24"
+                            Margin="8,0,0,0" Click="LogSave_Click"
+                            ToolTip="把当前筛选下看得见的日志存成文本文件（UTF-8）。现场跑完一趟可以把它带走。"/>
+                    <Button x:Name="LogClearButton" Content="清空" Width="60" Height="24"
+                            Margin="8,0,0,0" Click="LogClear_Click"
+                            ToolTip="清空日志。曲线不受影响（清曲线在「连接与读写」页）。"/>
+                </WrapPanel>
+
+                <GroupBox Padding="6"
+                          Header="收发日志（[设备] 链路原样输出 · [发送] 工具发出 · [识别] 识别出的帧 · [解析] 解析结果 · [工具] 工具提示）">
+                    <TextBox x:Name="CommLogTabBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                             TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"/>
+                </GroupBox>
+            </DockPanel>
         </TabItem>
     </TabControl>
     </DockPanel>

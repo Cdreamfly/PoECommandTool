@@ -1,7 +1,7 @@
 using System;
 using System.Text;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     // =====================================================================
     //  RTL8239 PoE 控制器主机命令组装库

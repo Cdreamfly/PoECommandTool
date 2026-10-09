@@ -1,14 +1,14 @@
 using System;
 using System.IO.Ports;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
-    /// <see cref="ISerialTransport"/> 的真实实现——整个工程里**唯一**碰 System.IO.Ports 的文件。
+    /// <see cref="ITransport"/> 的串口实现——整个工程里**唯一**碰 System.IO.Ports 的文件。
     ///
     /// net48 下 SerialPort 位于 System.dll（csproj 已引用），不需要额外的 NuGet 包。
     /// </summary>
-    public sealed class SystemSerialTransport : ISerialTransport
+    public sealed class SystemSerialTransport : ITransport
     {
         /// <summary>读超时。既是「没数据」的判定，也是读循环检查取消的周期（见 SerialSession）。</summary>
         private const int ReadTimeoutMs = 200;
@@ -22,18 +22,20 @@ namespace WpfApp1.Serial
             get { return _port != null && _port.IsOpen; }
         }
 
-        public void Open(SerialPortSettings settings)
+        public void Open(TransportSettings settings)
         {
-            if (settings == null) throw new ArgumentNullException("settings");
+            var serial = settings as SerialPortSettings;
+            if (serial == null)
+                throw new ArgumentException("串口传输层需要 SerialPortSettings。", "settings");
 
             Close();
 
             var port = new SerialPort(
-                settings.PortName,
-                settings.BaudRate,
-                ToParity(settings.Parity),
-                settings.DataBits,
-                ToStopBits(settings.StopBits));
+                serial.PortName,
+                serial.BaudRate,
+                ToParity(serial.Parity),
+                serial.DataBits,
+                ToStopBits(serial.StopBits));
 
             port.ReadTimeout = ReadTimeoutMs;
             port.WriteTimeout = WriteTimeoutMs;
@@ -80,7 +82,7 @@ namespace WpfApp1.Serial
         }
 
         /// <summary>
-        /// 读一段数据；读超时返回 0（不是错误），端口未打开返回 -1（终止条件，见 <see cref="ISerialTransport.Read"/>）。
+        /// 读一段数据；读超时返回 0（不是错误），端口未打开返回 -1（终止条件，见 <see cref="ITransport.Read"/>）。
         /// </summary>
         public int Read(byte[] buffer, int offset, int count)
         {
@@ -107,21 +109,8 @@ namespace WpfApp1.Serial
             port.Write(data, offset, count);
         }
 
-        public void DiscardInBuffer()
-        {
-            SerialPort port = _port;
-            if (port != null && port.IsOpen)
-                port.DiscardInBuffer();
-        }
-
-        public void DiscardOutBuffer()
-        {
-            SerialPort port = _port;
-            if (port != null && port.IsOpen)
-                port.DiscardOutBuffer();
-        }
-
-        public string[] GetPortNames()
+        /// <summary>当前系统上可用的串口名。与传输层实例无关，所以是静态的。</summary>
+        public static string[] GetPortNames()
         {
             try
             {

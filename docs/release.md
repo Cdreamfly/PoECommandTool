@@ -1,0 +1,139 @@
+# 发布说明
+
+## 版本号
+
+两处必须**一起改**，否则 ClickOnce 安装清单里的依赖版本与实际程序集对不上，激活时校验失败：
+
+| 位置 | 当前值 | 说明 |
+|---|---|---|
+| `AppVersion.cs` 的 `AppVersion.Number` | `1.3.1` | 标题栏 / 关于框 / 启动日志 / 程序集版本都读它（`Properties/AssemblyInfo.cs` 引用同一个常量） |
+| `PoECommandTool.csproj` 的 `<ApplicationVersion>` | `1.3.1.0` | 四段式；`<ApplicationRevision>` 保持 `0` |
+
+改完跑一次构建，确认 exe 的文件属性里 `FileVersion` / `ProductVersion` 是同一个版本。
+
+## 签名密钥 ⚠️ 有到期日
+
+发布用的 `.pfx` 在仓库根目录：`PoECommandTool_TemporaryKey.pfx`。它**不在版本控制里**
+（`.gitignore` 有 `*.pfx`），发布时它在磁盘上即可。
+
+实测（openssl，2026-09-17）：
+
+| | |
+|---|---|
+| Subject | `CN = DESKTOP-RI50DIS\ymz` |
+| 有效期 | 2025-12-13 → **2026-12-13** |
+| SHA-1 指纹 | `3C:7B:69:D1:67:1D:E8:6A:18:5A:7E:68:26:64:B3:67:4D:9C:2F:B5` |
+| 密码 | **无**（`-passin pass:` 即可导出私钥） |
+| 时间戳 | **未配置时间戳服务** |
+
+指纹与 `PoECommandTool.csproj` 里的 `<ManifestCertificateThumbprint>` 一致，所以它确实是
+**当前生效**的发布密钥，不是历史遗留。
+
+### 两件独立的事
+
+**1. 它是无密码的，而且在同一个目录树里。** 任何拿到这棵树的人都能伪造一次
+「客户端本来就信任的发布者」签出的更新。Phase 2 曾按「反正用户看到的是未知发布者」
+判为低危——**那个理由对重装/更新路径不成立**。
+
+**2. 2026-12-13 之后发布会静默失败。** 到期后签出来的清单带过期证书，客户端在安装时
+拒绝，错误指向清单本身，而**仓库里原先没有任何地方记录这个日期**（本文档就是为此写的）。
+
+### 轮换（**需要先做决定，不要直接换**）
+
+换密钥会改**发布者身份**，而 ClickOnce 的更新要求发布者一致——**换了之后现有用户必须重装**。
+所以这一步不是纯技术操作，得先确认：
+
+- 现有安装分布在哪些机器上、能不能接受重装；
+- 新证书放哪（建议 `CN=PoECommandTool Release`、5–10 年、**带密码**、装进证书存储而不是仓库树）；
+- 是否配置时间戳服务（配了就不受证书到期影响）。
+
+在此之前，**至少要做的**是给 2026-12-13 设个提醒。
+
+## 发布目标目录
+
+`PoECommandTool.csproj` 里 `<PublishUrl>` 当前指向 **`D:\TFTP\`**。
+
+审查指出该目录 `drwxrwxrwx`，且**固件载荷与可执行产物混放**（22 个 `.img`、8 个 49MB
+`.bin`、两个 `.mp3`、脚本、`.docx`……只有 1 个哈希旁文件）。风险不在目录本身，
+而在**同处一室的写权限**：谁能往放抓包 MP3 的地方写，谁就能丢下一份 ClickOnce 会
+按既有发布者身份接受的部署。
+
+建议拆开（一行 csproj 配置 + 一个习惯）：
+
+- `D:\TFTP\` —— 只放**载荷**，永不执行；
+- `D:\Publish\<version>\` —— 只放**部署**，设 ACL、不经 TFTP 共享。
+
+另外 `<MapFileExtensions>true</MapFileExtensions>` 会让发布目录里看到一堆 `.deploy`，
+排查时记得这一点。
+
+## ⚠️ 未真机验证的功能：固件下载
+
+`固件下载` 页的「**下载到设备**」按钮（以及它依赖的整条链路）**没有在真机上跑过**。
+
+分清楚哪些有把握、哪些没有：
+
+| 部分 | 状态 |
+|---|---|
+| 分帧、对齐、偏移编码 | ✅ 有断言（`DownloadPlanTests`） |
+| 4 字节 Loader 应答的同步 | ✅ 有断言（`LoaderAckScanTests`：跨读拆分、噪声跳过、多帧） |
+| 应答核对、重试、失败即停、模式还原 | ✅ 有断言（`DownloadRunnerTests`，用假传输层） |
+| **真的能把固件写进设备** | ❌ **未验证** |
+
+也就是说：**逻辑是测过的，但对设备的行为没有。**
+
+首次真机使用时按这个顺序来：
+
+1. 先用一颗**可以随便写坏**的板子，别拿在用的设备试；
+2. 确认「串口读写」页处于**裸帧直连**（Loader 应答是 4 字节二进制，文本模式认不出来）；
+3. 先只跑一个**很小的镜像**，看每一帧是否都被确认、失败停在哪一帧；
+4. 确认设备侧真的收全了（用它自己的校验/回读方式），再考虑正式使用。
+
+失败时的行为已经刻意做成了「立即停」：继续往下发会把后续数据写到错误的偏移上。
+但**停在中途的设备处于什么状态，取决于设备侧**——这一点本工具无法保证。
+
+另外本工具**不会**自动发送「跳转到 Loader」（`0xC0-00`）：那会擦除固件信息，
+万一下载没走完，设备就停在 Loader 里了。这一步要自己决定什么时候发。
+
+## 发布前检查
+
+- [ ] `AppVersion.Number` 与 csproj 的 `ApplicationVersion` 一致
+- [ ] 先 `/t:Restore` 再 Release 构建，0 错误 0 警告
+- [ ] `dotnet run --project tests/Verify.csproj` → ALL PASS
+- [ ] 签名证书未过期（见上）
+- [ ] 发布目录是部署专用目录，不与固件载荷混放
+- [ ] **依赖 DLL 都随包发布了**（见下）
+- [ ] 装一次、跑一次，确认标题栏版本号正确
+- [ ] 在干净机器上**连一次 SSH**（哪怕连不上，也不能是「无法加载程序集」）
+
+## 第三方依赖：SSH.NET
+
+本项目唯一的直接依赖是 **SSH.NET 2025.1.0**（SSH 传输）。它会拖来 11 个传递依赖，
+`bin\Release` 里实际会出现 **12 个 DLL**：
+
+```
+Renci.SshNet.dll                     BouncyCastle.Cryptography.dll
+Microsoft.Extensions.Logging.Abstractions.dll
+Microsoft.Extensions.DependencyInjection.Abstractions.dll
+System.Formats.Asn1.dll              System.Memory.dll
+System.Buffers.dll                   System.Numerics.Vectors.dll
+System.Runtime.CompilerServices.Unsafe.dll
+System.Threading.Tasks.Extensions.dll  Microsoft.Bcl.AsyncInterfaces.dll
+System.ValueTuple.dll
+```
+
+（这份清单是构建后从 `bin\Release\*.dll` 数出来的，不是照 nuspec 猜的——
+nuspec 只列直接依赖，传递依赖要 restore 之后才知道。）
+
+**构建流程变了**：加了包之后 `/t:Rebuild` 不再隐式还原，必须 `/t:Restore` → `/t:Rebuild`。
+
+`<MapFileExtensions>true</MapFileExtensions>` 会让它们在发布目录里显示成 `.deploy`，排查时记得。
+
+**绑定重定向**：`App.config` 之前被登记成 `EmbeddedResource`，于是 `$(AppConfig)` 为空、
+`AutoGenerateBindingRedirects` 一个重定向都没生成（没有第三方依赖时看不出来）。
+已改成常规的 `<None Include="App.config" />`，现在 `PoECommandTool.exe.config` 会随包发布。
+当前这 12 个 DLL 之间没有版本冲突，所以里面只有 `<supportedRuntime>`；
+一旦将来出现冲突，重定向会出现在这个文件里——**发布时确认它也在包里**。
+
+缺少依赖的表现是：**干净机器上第一次点「连接」（SSH）时才 `FileNotFoundException`**，
+所以「在干净机器上连一次」是发布前必须做的一步，本机测不出来。
+

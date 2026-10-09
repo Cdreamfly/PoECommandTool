@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     // =====================================================================
     //  RTL8239 命令目录（供界面展示与参数输入）
@@ -25,6 +25,15 @@ namespace WpfApp1
         public string Name;
         public FieldKind Kind;
         public long DefaultValue;
+
+        /// <summary>
+        /// 设备实际接受的范围。为 null 表示「该字段类型能表示的范围」（见 <see cref="Rtl8239Catalog.MaxFor"/>）。
+        ///
+        /// 为什么需要它：<see cref="FieldKind"/> 只说得清「几字节」，说不清「设备认不认」。
+        /// Bank ID 是 Byte，但设备只认 0x00-0x07；不写在这里的话，填 0x50 会一路发到硬件。
+        /// </summary>
+        public long? MinValue;
+        public long? MaxValue;
     }
 
     /// <summary>命令定义。</summary>
@@ -57,6 +66,20 @@ namespace WpfApp1
 
         private static FieldDef P(string name = "端口（0x00-0x2F）") =>
             new FieldDef { Name = name, Kind = FieldKind.Port };
+
+        /// <summary>
+        /// 数值范围比字段类型更窄的字段。名字里通常已经写着范围了——
+        /// 把它变成机器能校验的约束，而不是只给人看的一句话。
+        /// </summary>
+        private static FieldDef Ranged(string name, long def, long min, long max) =>
+            new FieldDef
+            {
+                Name = name,
+                Kind = FieldKind.Byte,
+                DefaultValue = def,
+                MinValue = min,
+                MaxValue = max,
+            };
 
         private static CommandDef Def(string key, string name, string cat, string desc,
             Func<byte, long[], byte[]> build, params FieldDef[] fields) =>
@@ -119,11 +142,22 @@ namespace WpfApp1
         {
             if (field == null) throw new ArgumentNullException(nameof(field));
 
-            long max = MaxFor(field.Kind);
-            if (value < 0 || value > max)
+            // 先按设备实际接受的范围（如果这个字段声明了），否则按字段类型能表示的范围。
+            // 前者更严：Bank ID 是 Byte，但设备只认 0x00-0x07。
+            long min = field.MinValue.HasValue ? field.MinValue.Value : 0;
+            long max = field.MaxValue.HasValue ? field.MaxValue.Value : MaxFor(field.Kind);
+
+            if (value < min || value > max)
                 throw new ArgumentOutOfRangeException(field.Name,
-                    string.Format("「{0}」的值 {1} 超出 {2} 的范围（0 - 0x{3:X}）。",
-                        field.Name, value, field.Kind, max));
+                    string.Format("「{0}」的值 {1} 超出设备接受的范围（{2} - {3}）。",
+                        field.Name, value, Describe(min), Describe(max)));
+        }
+
+        private static string Describe(long value)
+        {
+            return value > 9
+                ? string.Format("0x{0:X}", value)
+                : value.ToString();
         }
 
         /// <summary>
@@ -169,7 +203,7 @@ namespace WpfApp1
             Def("0x02", "全局复位设置", CatControl,
                 "复位整个 PoE 子系统。\n参数：0x00 = 不复位，0x01 = 复位。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalResetSet(seq, (byte)v[0]),
-                B("复位值（0x00 不复位 / 0x01 复位）", 0x01)),
+                B("复位值（0x00 不复位 / 0x01 复位）", 0x00)),
 
             Def("0x03", "端口复位设置", CatControl,
                 "将指定端口状态机复位到空闲、配置值恢复默认。\n值：0x00 = 不复位，0x01 = 复位。",
@@ -179,7 +213,7 @@ namespace WpfApp1
             Def("0x04", "全局功率源设置", CatControl,
                 "设置指定功率 bank 的总功率与保留功率，单位 0.1W/LSB。\n保留功率必须小于总功率。Bank ID 0x00-0x07 有效。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalPowerSourceSet(seq, (byte)v[0], (int)v[1], (int)v[2]),
-                B("Bank ID（0x00-0x07）", 0x00),
+                Ranged("Bank ID（0x00-0x07）", 0x00, 0x00, 0x07),
                 W("总功率（0.1W/LSB）", 3000),
                 W("保留功率（0.1W/LSB）", 300)),
 
@@ -188,18 +222,18 @@ namespace WpfApp1
                 "响应在 2 秒内返回，响应前不得再发命令。",
                 (seq, v) => Rtl8239CommandBuilder.PortMappingEnableSet(seq, (byte)v[0], (byte)v[1]),
                 B("映射（0x00 开始 / 0x01 结束）", 0x01),
-                B("最大端口数（0-48）", 48)),
+                Ranged("最大端口数（0-48）", 48, 0, 48)),
 
             Def("0x06", "端口对映射设置", CatControl,
                 "配置逻辑端口的芯片索引与主/副通道（单端口）。\n" +
                 "4-Pair：0x00 = 2-pair 模式，0x01 = 4-pair 模式。芯片地址连续时「芯片地址」填 0xFF。",
                 (seq, v) => Rtl8239CommandBuilder.PortPairMappingSet(seq, (byte)v[0], (byte)v[1],
                     (byte)v[2], (byte)v[3], (byte)v[4], (byte)v[5]),
-                B("端口（0x00-0x2F）", 0x00),
+                Ranged("端口（0x00-0x2F）", 0x00, 0x00, 0x2F),
                 B("4-Pair（0x00 2pair / 0x01 4pair）", 0x00),
-                B("芯片索引（0-0xE）", 0x00),
-                B("主通道（0-7）", 0x00),
-                B("副通道（0-7）", 0xFF),
+                Ranged("芯片索引（0-0xE）", 0x00, 0, 0x0E),
+                Ranged("主通道（0-7）", 0x00, 0, 7),
+                B("副通道（0-7）", 0xFF),   // 0xFF = 不使用副通道，所以不能一刀切按 0-7 卡
                 B("芯片地址（0xFF = 连续）", 0xFF)),
 
             Def("0x08", "端口功能模式设置", CatControl,
@@ -236,7 +270,7 @@ namespace WpfApp1
             Def("0x0E", "全局参数设置", CatControl,
                 "设置 UVLO / OVLO 阈值（原始 LSB 值）。\nUVLO = 33V + X×64.45mV；OVLO = 57V + X×64.45mV（X 为 0x00-0x2F）。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalParametersSet(seq, (byte)v[0], (byte)v[1]),
-                B("UVLO（原始值）", 0x00),
+                Ranged("UVLO（原始值，0x00-0x2F）", 0x00, 0x00, 0x2F),
                 B("OVLO（原始值）", 0x00)),
 
             Def("0x0F", "端口断连类型设置", CatControl,
@@ -247,7 +281,7 @@ namespace WpfApp1
             Def("0x10", "全局功率管理模式设置", CatControl,
                 "设置全局功率管理模式。\n值：0 = 无，1 = 静态+优先级，2 = 动态+优先级，3 = 静态无优先级，4 = 动态无优先级。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalPowerManagementModeSet(seq, (byte)v[0]),
-                B("模式（0-4）", 0x00)),
+                Ranged("模式（0-4）", 0x00, 0, 4)),
 
             Def("0x11", "全局功率管理扩展设置", CatControl,
                 "系统预分配功能。\n值：0x00 = 使能，其它 = 禁用。",
@@ -308,7 +342,7 @@ namespace WpfApp1
             Def("0x43", "端口组状态获取", CatQuery,
                 "一次获取一组（4 个）端口的状态。\n组 0x00-0x0B 有效（8 口系统：组 0 = 端口 0-3）。",
                 (seq, v) => Rtl8239CommandBuilder.PortGroupStatusGet(seq, (byte)v[0]),
-                B("组索引（0x00-0x0B）", 0x00)),
+                Ranged("组索引（0x00-0x0B）", 0x00, 0x00, 0x0B)),
 
             Def("0x44", "端口测量获取", CatQuery,
                 "获取端口电压(64.45mV/LSB)、电流(1mA/LSB)、IC 中心温度、实际功率(0.1W/LSB)。",
@@ -347,12 +381,12 @@ namespace WpfApp1
             Def("0x4B", "全局功率管理配置获取", CatQuery,
                 "获取 PM 模式与各 bank 总/保留功率（0.1W/LSB）。\n注意：本命令 Byte1 为 Bank ID（非序列号）。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalPMConfigurationGet((byte)v[0]),
-                B("Bank ID（0x00-0x07）", 0x00)),
+                Ranged("Bank ID（0x00-0x07）", 0x00, 0x00, 0x07)),
 
             Def("0x4C", "全局设备地址获取", CatQuery,
                 "读取 PSE 芯片的 I2C 地址（每次 8 颗，空位填 0xFF）。\n索引 0x00-0x0B 有效。",
                 (seq, v) => Rtl8239CommandBuilder.GlobalDeviceAddressGet(seq, (byte)v[0]),
-                B("索引（0x00-0x0B）", 0x00)),
+                Ranged("索引（0x00-0x0B）", 0x00, 0x00, 0x0B)),
 
             Def("0x4D", "端口功能模式获取", CatQuery,
                 "读取端口功能模式：auto / semi-auto / manual。",
@@ -416,14 +450,14 @@ namespace WpfApp1
             Def("0xF0", "芯片寄存器写", CatDebug,
                 "直接写指定 PoE 芯片的 32 位寄存器。\n芯片地址 0x20-0x37 有效；寄存器地址与值为 32 位。",
                 (seq, v) => Rtl8239CommandBuilder.ChipRegisterSet(seq, (byte)v[0], (uint)v[1], (uint)v[2]),
-                B("芯片地址（0x20-0x37）", 0x20),
+                Ranged("芯片地址（0x20-0x37）", 0x20, 0x20, 0x37),
                 D("寄存器地址（32 位）", 0x00000000),
                 D("寄存器值（32 位）", 0x00000000)),
 
             Def("0xF1", "芯片寄存器读", CatDebug,
                 "直接读指定 PoE 芯片的 32 位寄存器。\n芯片地址 0x20-0x37 有效。",
                 (seq, v) => Rtl8239CommandBuilder.ChipRegisterGet(seq, (byte)v[0], (uint)v[1]),
-                B("芯片地址（0x20-0x37）", 0x20),
+                Ranged("芯片地址（0x20-0x37）", 0x20, 0x20, 0x37),
                 D("寄存器地址（32 位）", 0x00000000)),
         };
     }

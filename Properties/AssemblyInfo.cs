@@ -7,11 +7,11 @@ using System.Windows;
 // 有关程序集的一般信息由以下
 // 控制。更改这些特性值可修改
 // 与程序集关联的信息。
-[assembly: AssemblyTitle("RTL8239 PoE Command Tool")]
+[assembly: AssemblyTitle("PoECommandTool")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("cmf")]
-[assembly: AssemblyProduct("RTL8239 PoE Command Tool")]
+[assembly: AssemblyProduct("PoECommandTool")]
 [assembly: AssemblyCopyright("Copyright © 2025 cmf")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -49,5 +49,5 @@ using System.Windows;
 //      修订号
 //
 // 版本号只在 AppVersion.Number 里改一处，界面显示和程序集版本一起变
-[assembly: AssemblyVersion(WpfApp1.AppVersion.Number)]
-[assembly: AssemblyFileVersion(WpfApp1.AppVersion.Number)]
+[assembly: AssemblyVersion(PoECommandTool.AppVersion.Number)]
+[assembly: AssemblyFileVersion(PoECommandTool.AppVersion.Number)]

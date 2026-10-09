@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 从设备控制台的一行输出里抠出 RTL8239 响应帧。

@@ -5,13 +5,13 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using WpfApp1.Chart;
-using WpfApp1.Serial;
+using PoECommandTool.Chart;
+using PoECommandTool.Serial;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
-    /// 「串口读写」页的轮询部分：可轮询命令的勾选列表、启停、状态显示。
+    /// 「连接与读写」页的轮询部分：可轮询命令的勾选列表、启停、状态显示。
     /// 调度与配对逻辑在 PollingScheduler / PollingRunner / SerialSession 里，这里只负责接线。
     /// </summary>
     public partial class MainWindow
@@ -22,6 +22,9 @@ namespace WpfApp1
 
         private CancellationTokenSource _pollCts;
         private Task _pollTask;
+
+        /// <summary>轮询是否正在进行。与 <see cref="SetPollingUiState"/> 同步维护。</summary>
+        private bool _pollingActive;
         private PollingRunner _runner;
         private int _pollsSent;
         private int _pollsOk;
@@ -88,12 +91,16 @@ namespace WpfApp1
                 _pollCheckBoxes[i].Unchecked += PollItem_Toggled;
             }
 
-            // 需要额外参数的查询命令：列出来但置灰，免得用户以为工具漏了它们
+            // 需要额外参数的查询命令：列出来但置灰，免得用户以为工具漏了它们。
+            // 已被「设备信息」面板接管的（0x47 / 0x4C 等）跳过——它们在那边有正经入口，
+            // 这里再挂一行「暂不支持」会自相矛盾。
             List<CommandDef> all = Rtl8239Catalog.All;
             for (int i = 0; i < all.Count; i++)
             {
                 CommandDef cmd = all[i];
                 if (cmd.Category != Rtl8239Catalog.CatQuery || PollPlan.IsPollable(cmd))
+                    continue;
+                if (CommandOwnership.OwnedByDeviceInfoPanel(cmd.Key))
                     continue;
 
                 var disabled = new CheckBox
@@ -122,7 +129,7 @@ namespace WpfApp1
             {
                 if (!_session.IsOpen)
                 {
-                    AppendLog("请先打开串口。");
+                    AppendLog(ConnectPrompt);
                     return;
                 }
 
@@ -153,9 +160,19 @@ namespace WpfApp1
                 _runner.Notice += OnPollNotice;
 
                 SetPollingUiState(true);
-                AppendLog(string.Format("开始轮询：{0} 条命令，轮次间隔 {1} ms，命令间隔 {2} ms，超时 {3} ms，重试 {4} 次。",
+                // 把「一轮实际要多久」摆出来。间隔设置只是目标值：一轮要走完所有勾选的命令，
+                // 每条之间还要留命令间隔，所以条目一多，实际轮次就由命令间隔说了算，
+                // 那个「间隔(ms)」会静默失效。不说清楚的话，用户会把曲线的斜率误读成物理速率。
+                long roundMs = (long)CountEnabled(plan) * plan.InterCommandDelayMs;
+                string ceiling = roundMs > plan.IntervalMs
+                    ? string.Format("；一轮至少 {0:F1} 秒（{1} 条 × 命令间隔 {2} ms），"
+                        + "已超过间隔设置，此时间隔不生效",
+                        roundMs / 1000.0, CountEnabled(plan), plan.InterCommandDelayMs)
+                    : string.Empty;
+
+                AppendLog(string.Format("开始轮询：{0} 条命令，轮次间隔 {1} ms，命令间隔 {2} ms，超时 {3} ms，重试 {4} 次{5}。",
                     CountEnabled(plan), plan.IntervalMs, plan.InterCommandDelayMs,
-                    plan.ResponseTimeoutMs, plan.MaxRetries));
+                    plan.ResponseTimeoutMs, plan.MaxRetries, ceiling));
 
                 _pollTask = _runner.RunAsync(plan, _serialOptions, _pollCts.Token);
                 await _pollTask;
@@ -224,7 +241,7 @@ namespace WpfApp1
                 TextBox portBox = _pollPortBoxes[i];
                 if (portBox == null)
                 {
-                    plan.Items.Add(item);       // 不带端口字段的命令（0x41 / 0x40 / 0x4A / 0x50）
+                    plan.Items.Add(item);       // 不带端口字段的命令（如 0x41）
                     enabledCount++;
                     continue;
                 }
@@ -317,10 +334,28 @@ namespace WpfApp1
 
         private void SetPollingUiState(bool polling)
         {
-            StartPollButton.IsEnabled = !polling;
+            _pollingActive = polling;
+            UpdatePollStartButton();
             StopPollButton.IsEnabled = polling;
             PollStatusText.Text = polling ? "轮询中…" : string.Empty;
             PollStatusText.Foreground = polling ? Brushes.Green : Gray;
+
+            // 让「设备信息」的「更新」跟着轮询一起禁用：两边共用一把事务锁，
+            // 一次更新要连着读六条命令，插进轮询里会把串口占住十几秒甚至更久。
+            UpdateDeviceInfoUi();
+        }
+
+        /// <summary>
+        /// 「开始轮询」的可用性。互锁必须是**双向**的：只挡住「轮询时点更新」还不够，
+        /// 反过来的「读取/发送时点开始轮询」会让轮询一上来就卡在事务锁上，
+        /// 界面停在「轮询中… 已发 0 / 成功 0」，既不报错也看不出在等什么。
+        /// </summary>
+        private void UpdatePollStartButton()
+        {
+            if (StartPollButton == null)
+                return;
+
+            StartPollButton.IsEnabled = !_pollingActive && !_deviceInfo.IsBusy && !_sendParse.IsBusy;
         }
 
         private void OnPollRequestSent(PollRequest request)

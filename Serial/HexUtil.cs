@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace WpfApp1.Serial
+namespace PoECommandTool.Serial
 {
     /// <summary>
     /// 十六进制文本与字节数组互转。

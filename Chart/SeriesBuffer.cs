@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>一个采样点。</summary>
     public struct SeriesSample
@@ -17,14 +17,24 @@ namespace WpfApp1.Chart
     }
 
     /// <summary>
-    /// 一条曲线的采样缓冲：预分配环形数组，写入零分配，容量与时间窗双重限制，
+    /// 一条曲线的采样缓冲：环形数组，写入零分配，容量与时间窗双重限制，
     /// 长时间轮询也不会越跑越占内存。
     /// </summary>
     public sealed class SeriesBuffer
     {
         public const int DefaultCapacity = 20000;
 
-        private readonly SeriesSample[] _ring;
+        /// <summary>
+        /// 一开始就分配的条数，之后按需翻倍长到 <see cref="DefaultCapacity"/>。
+        ///
+        /// 原先是一次性分配满 20000 条——每条 16 字节，**一条曲线 320KB**。48 端口 ×
+        /// 4 个参数就是 61MB 压在**大对象堆**上，而且是在一个采样点都还没有的时候就占住了。
+        /// .NET Framework 默认不压缩 LOH，「清空曲线 → 重新轮询」来回几次就会把它撕碎。
+        /// </summary>
+        public const int InitialCapacity = 1024;
+
+        private SeriesSample[] _ring;
+        private readonly int _maxCapacity;
         private int _start;
         private int _count;
 
@@ -42,7 +52,9 @@ namespace WpfApp1.Chart
             Unit = unit;
             ColorHex = "#1A73E8";
             Visible = true;
-            _ring = new SeriesSample[capacity];
+
+            _maxCapacity = capacity;
+            _ring = new SeriesSample[capacity < InitialCapacity ? capacity : InitialCapacity];
         }
 
         public string Key { get; private set; }
@@ -53,9 +65,10 @@ namespace WpfApp1.Chart
         /// <summary>图例里勾选的状态。</summary>
         public bool Visible { get; set; }
 
+        /// <summary>这条曲线最多能存多少个采样（不是当前数组的长度——数组是按需长上来的）。</summary>
         public int Capacity
         {
-            get { return _ring.Length; }
+            get { return _maxCapacity; }
         }
 
         public int Count
@@ -88,10 +101,33 @@ namespace WpfApp1.Chart
                 return true;
             }
 
-            // 满了：覆盖最旧的一个
+            // 装满了：还没到配置的上限就先长一倍，到了上限才覆盖最旧的
+            if (_ring.Length < _maxCapacity)
+            {
+                Grow();
+                _ring[(_start + _count) % _ring.Length] = new SeriesSample(time, value);
+                _count++;
+                return true;
+            }
+
             _ring[_start] = new SeriesSample(time, value);
             _start = (_start + 1) % _ring.Length;
             return true;
+        }
+
+        /// <summary>容量翻倍，按时间顺序把已有采样搬到新数组的开头。</summary>
+        private void Grow()
+        {
+            int grown = _ring.Length * 2;
+            if (grown > _maxCapacity)
+                grown = _maxCapacity;
+
+            var next = new SeriesSample[grown];
+            for (int i = 0; i < _count; i++)
+                next[i] = _ring[(_start + i) % _ring.Length];
+
+            _ring = next;
+            _start = 0;
         }
 
         /// <summary>第 index 个样本（0 = 最旧）。</summary>

@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace WpfApp1.Chart
+namespace PoECommandTool.Chart
 {
     /// <summary>一条曲线在指定时间窗内的统计量。</summary>
     public struct SeriesStatistics

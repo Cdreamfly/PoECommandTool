@@ -11,7 +11,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Microsoft.Win32;
 
-namespace WpfApp1
+namespace PoECommandTool
 {
     /// <summary>
     /// MainWindow.xaml 的交互逻辑
@@ -163,6 +163,95 @@ namespace WpfApp1
             rList.Checked += (s, e2) => { _listMode = true; _singleRow.Visibility = Visibility.Collapsed; _listRow.Visibility = Visibility.Visible; };
         }
 
+        /// <summary>一条组装好的命令：端口、实际用的序列号、帧，以及「生成命令」页面上那一行的原文。</summary>
+        private sealed class PlannedFrame
+        {
+            public bool HasPort;
+            public long Port;
+            public byte Sequence;
+            public byte[] Frame;
+            public string Line;
+        }
+
+        /// <summary>
+        /// 把当前界面上的参数组装成帧。越界与非法输入在这里抛，由调用方决定怎么呈现。
+        ///
+        /// 「生成命令」与「发送并解析」都走这一个方法，两者的帧因此**必然逐字节一致**——
+        /// 这也是「原有功能一行不变」的根据。
+        ///
+        /// <paramref name="stepSequence"/>：多帧时序列号是否逐帧递增。
+        /// 「生成命令」传 false（所有帧同一个序列号，与改动前完全一致）；
+        /// 发送时必须传 true——回包只按「命令号 + Byte1」配对，N 帧同号的话，
+        /// 第 3 帧迟到的回包会被第 5 帧的等待认领，把别人的数据显示成自己的。
+        /// </summary>
+        private List<PlannedFrame> BuildFramePlan(byte firstSequence, bool stepSequence)
+        {
+            var ports = new List<long>();
+            bool hasPort = _current.Fields.Any(f => f.Kind == FieldKind.Port);
+            if (hasPort)
+            {
+                const long MaxPort = 0x2F; // 端口 0-47
+                if (_listMode)
+                {
+                    long start = Rtl8239Catalog.ParseNumber(_portStartBox.Text);
+                    long end = Rtl8239Catalog.ParseNumber(_portEndBox.Text);
+                    if (start < 0 || start > MaxPort || end < 0 || end > MaxPort)
+                        throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
+                    if (end < start) throw new InvalidOperationException("结束端口不能小于起始端口。");
+                    for (long p = start; p <= end; p++) ports.Add(p);
+                }
+                else
+                {
+                    long port = Rtl8239Catalog.ParseNumber(_portSingleBox.Text);
+                    if (port < 0 || port > MaxPort)
+                        throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
+                    ports.Add(port);
+                }
+            }
+            else
+            {
+                ports.Add(0);   // 无端口字段的命令只生成一条
+            }
+
+            var plan = new List<PlannedFrame>();
+            byte sequence = firstSequence;
+            for (int index = 0; index < ports.Count; index++)
+            {
+                long port = ports[index];
+                if (index > 0 && stepSequence)
+                    sequence = Serial.PollingScheduler.NextSequence(sequence);
+
+                var values = new long[_current.Fields.Length];
+                int fixedIdx = 0;
+                for (int f = 0; f < _current.Fields.Length; f++)
+                {
+                    FieldDef fd = _current.Fields[f];
+                    values[f] = fd.Kind == FieldKind.Port
+                        ? port
+                        : Rtl8239Catalog.ParseNumber(_fixedBoxes[fixedIdx++].Text);
+                }
+
+                // BuildChecked 在组装前按 FieldKind 校验每个值：越界必须在这里被拦下，
+                // 因为 Build lambda 里的 (byte)/(int) 转换会静默截断
+                //（300 → 0x2C，70000 → 446.4W），那是会写进真实硬件配置的错误值。
+                byte[] frame = Rtl8239Catalog.BuildChecked(_current, sequence, values);
+
+                var planned = new PlannedFrame();
+                planned.HasPort = hasPort;
+                planned.Port = port;
+                planned.Sequence = sequence;
+                planned.Frame = frame;
+                planned.Line = hasPort
+                    ? string.Format("端口 0x{0:X2}:  {1}  ({2} 字节)",
+                        port, Rtl8239CommandBuilder.ToHex(frame), frame.Length)
+                    : string.Format("{0}  ({1} 字节)",
+                        Rtl8239CommandBuilder.ToHex(frame), frame.Length);
+                plan.Add(planned);
+            }
+
+            return plan;
+        }
+
         private void Generate_Click(object sender, RoutedEventArgs e)
         {
             if (_current == null)
@@ -175,58 +264,13 @@ namespace WpfApp1
             {
                 // 序列号会被塞进帧的 Byte1，越界必须在这里拦下（300 → 0x2C 会让回包永远对不上）
                 byte seq = Rtl8239Catalog.ParseByte(SeqText.Text, "序列号");
-
-                var ports = new List<long>();
-                bool hasPort = _current.Fields.Any(f => f.Kind == FieldKind.Port);
-                if (hasPort)
-                {
-                    const long MaxPort = 0x2F; // 端口 0-47
-                    if (_listMode)
-                    {
-                        long start = Rtl8239Catalog.ParseNumber(_portStartBox.Text);
-                        long end = Rtl8239Catalog.ParseNumber(_portEndBox.Text);
-                        if (start < 0 || start > MaxPort || end < 0 || end > MaxPort)
-                            throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
-                        if (end < start) throw new InvalidOperationException("结束端口不能小于起始端口。");
-                        for (long p = start; p <= end; p++) ports.Add(p);
-                    }
-                    else
-                    {
-                        long port = Rtl8239Catalog.ParseNumber(_portSingleBox.Text);
-                        if (port < 0 || port > MaxPort)
-                            throw new InvalidOperationException("端口必须在 0x00-0x2F（0-47）范围内。");
-                        ports.Add(port);
-                    }
-                }
-                else
-                {
-                    ports.Add(0);   // 无端口字段的命令只生成一条
-                }
+                List<PlannedFrame> plan = BuildFramePlan(seq, false);
 
                 var sb = new StringBuilder();
-                foreach (long port in ports)
-                {
-                    var values = new long[_current.Fields.Length];
-                    int fixedIdx = 0;
-                    for (int f = 0; f < _current.Fields.Length; f++)
-                    {
-                        FieldDef fd = _current.Fields[f];
-                        values[f] = fd.Kind == FieldKind.Port
-                            ? port
-                            : Rtl8239Catalog.ParseNumber(_fixedBoxes[fixedIdx++].Text);
-                    }
+                for (int i = 0; i < plan.Count; i++)
+                    sb.AppendLine(plan[i].Line);
 
-                    // BuildChecked 在组装前按 FieldKind 校验每个值：越界必须在这里被拦下，
-                    // 因为 Build lambda 里的 (byte)/(int) 转换会静默截断
-                    //（300 → 0x2C，70000 → 446.4W），那是会写进真实硬件配置的错误值。
-                    byte[] frame = Rtl8239Catalog.BuildChecked(_current, seq, values);
-                    if (hasPort)
-                        sb.AppendLine($"端口 0x{port:X2}:  {Rtl8239CommandBuilder.ToHex(frame)}  ({frame.Length} 字节)");
-                    else
-                        sb.AppendLine($"{Rtl8239CommandBuilder.ToHex(frame)}  ({frame.Length} 字节)");
-                }
-
-                sb.AppendLine($"—— 共生成 {ports.Count} 条命令 ——");
+                sb.AppendLine($"—— 共生成 {plan.Count} 条命令 ——");
                 ResultBox.Text = sb.ToString();
             }
             catch (Exception ex)
@@ -243,12 +287,40 @@ namespace WpfApp1
         {
             try
             {
-                byte[] frame = ParseHexBytes(RespInput.Text);
-                if (frame.Length < Rtl8239ResponseParser.LoaderAckLength)
+                byte[] data = ParseHexBytes(RespInput.Text);
+                if (data.Length < Rtl8239ResponseParser.LoaderAckLength)
                     throw new Exception("响应帧至少 4 字节。");
 
-                object result = Rtl8239ResponseParser.Parse(frame, SelectedByteOrder(RespByteOrderCombo));
-                RespOutput.Text = CheckFrameExpectations(frame) + FormatObject(result);
+                List<byte[]> frames = SplitFrames(data);
+
+                var sb = new StringBuilder();
+                if (frames.Count > 1)
+                    sb.AppendLine(string.Format("—— 认出 {0} 帧（共 {1} 字节）——", frames.Count, data.Length))
+                      .AppendLine();
+
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    byte[] frame = frames[i];
+                    if (frames.Count > 1)
+                        sb.AppendLine(string.Format("【第 {0} 帧】{1}", i + 1, Rtl8239CommandBuilder.ToHex(frame)));
+
+                    sb.Append(CheckFrameExpectations(frame));
+
+                    try
+                    {
+                        sb.Append(FormatObject(Rtl8239ResponseParser.Parse(frame,
+                            SelectedByteOrder(RespByteOrderCombo))));
+                    }
+                    catch (Exception ex)
+                    {
+                        sb.AppendLine("解析失败：" + ex.Message);
+                    }
+
+                    if (frames.Count > 1)
+                        sb.AppendLine();
+                }
+
+                RespOutput.Text = sb.ToString();
             }
             catch (Exception ex)
             {
@@ -256,155 +328,82 @@ namespace WpfApp1
             }
         }
 
-        // 响应 Byte2 回显请求端口的命令。
-        private static readonly byte[] PortEchoCommands = { 0x42, 0x44, 0x45, 0x48, 0x49, 0x4E, 0x4F };
+        /// <summary>
+        /// 把粘进来的一串字节切成若干帧。
+        ///
+        /// 原先只取前 12 字节、**后面的静默丢掉**——粘了三帧进来只解一帧，而且不报错、
+        /// 不提示。用户以为解全了，比报错更糟。
+        ///
+        /// 切法：优先按 12 字节 App 帧（校验和说得通才算），否则按 4 字节 Loader 应答。
+        /// 两种都不是的情况（校验和对不上、长度又不整）留在末尾并如实说明，不硬猜。
+        /// </summary>
+        private static List<byte[]> SplitFrames(byte[] data)
+        {
+            var frames = new List<byte[]>();
+
+            int offset = 0;
+            while (offset < data.Length)
+            {
+                int remaining = data.Length - offset;
+
+                if (remaining >= Rtl8239CommandBuilder.AppFrameLength)
+                {
+                    var candidate = new byte[Rtl8239CommandBuilder.AppFrameLength];
+                    Array.Copy(data, offset, candidate, 0, candidate.Length);
+
+                    // 校验和说得通就按 App 帧切；说不通就退到 4 字节，让调用方去报解析失败
+                    if (Rtl8239CommandBuilder.IsChecksumValid(candidate, candidate.Length))
+                    {
+                        frames.Add(candidate);
+                        offset += candidate.Length;
+                        continue;
+                    }
+                }
+
+                if (remaining >= Rtl8239ResponseParser.LoaderAckLength)
+                {
+                    var ack = new byte[Rtl8239ResponseParser.LoaderAckLength];
+                    Array.Copy(data, offset, ack, 0, ack.Length);
+                    frames.Add(ack);
+                    offset += ack.Length;
+                    continue;
+                }
+
+                break;      // 剩下不足 4 字节，凑不成帧
+            }
+
+            return frames;
+        }
 
         // 可选的一致性核对：界面上填了「期望序列号 / 期望端口」时才检查响应帧里回显的值，
         // 只提示不阻断。只在解析成功后调用，因此不会把校验和错误误报成序列号不符。
+        //
+        // 规则本身在 ResponseEchoCheck 里——「命令组装」页发送后走的是**同一份**规则，
+        // 两处各写一套文案就是等着漂移。
         private string CheckFrameExpectations(byte[] frame)
         {
-            var notes = new List<string>();
-            bool isAppFrame = frame.Length >= Rtl8239CommandBuilder.AppFrameLength;
-            try
-            {
-                string seqText = (ExpectSeqText.Text ?? string.Empty).Trim();
-                if (seqText.Length > 0)
-                {
-                    if (!isAppFrame)
-                        notes.Add("响应帧不足 12 字节，无法核对序列号");
-                    else if (frame[0] == 0x4B)
-                        notes.Add("0x4B 响应 Byte1 为 Bank ID，跳过序列号核对");
-                    else
-                    {
-                        byte expected = ParseExpectationByte(seqText, "期望序列号");
-                        if (!Rtl8239CommandBuilder.IsResponseValid(frame, expected))
-                            notes.Add($"序列号不符：期望 0x{expected:X2}，实际 0x{frame[1]:X2}");
-                    }
-                }
+            string notes = Serial.ResponseEchoCheck.Describe(Serial.ResponseEchoCheck.NotesFromText(
+                frame, ExpectSeqText.Text, ExpectPortText.Text, true));
 
-                string portText = (ExpectPortText.Text ?? string.Empty).Trim();
-                if (portText.Length > 0)
-                {
-                    if (!PortEchoCommands.Contains(frame[0]))
-                        notes.Add($"命令 0x{frame[0]:X2} 的响应不含端口回显，跳过端口核对");
-                    else if (!isAppFrame)
-                        notes.Add("响应帧不足 12 字节，无法核对端口");
-                    else
-                    {
-                        byte expected = ParseExpectationByte(portText, "期望端口");
-                        if (frame[2] != expected)
-                            notes.Add($"端口回显不符：期望 0x{expected:X2}，实际 0x{frame[2]:X2}");
-                    }
-                }
-            }
-            catch (FormatException ex) { notes.Add("期望值无效：" + ex.Message); }
-            catch (OverflowException) { notes.Add("期望值超出可解析范围。"); }
-
-            return notes.Count == 0
+            return notes.Length == 0
                 ? string.Empty
-                : "⚠ " + string.Join("；", notes) + Environment.NewLine + Environment.NewLine;
+                : notes + Environment.NewLine + Environment.NewLine;
         }
 
-        private static byte ParseExpectationByte(string text, string label)
-        {
-            // 与序列号走同一套边界判断，避免这里成为第二份会各自漂移的副本
-            return Rtl8239Catalog.ParseByte(text, label);
-        }
-
+        // 十六进制文本 → 字节。走 HexUtil：它接受连写的十六进制（"420100FF"），
+        // 并且错误信息带字段序号——早先这里有一份自己的实现，对 "123" 这种奇数长度
+        // 会抛出框架的 OverflowException，用户看不懂。
         private static byte[] ParseHexBytes(string s)
         {
-            var tokens = (s ?? string.Empty).Split(
-                new[] { ' ', ',', '\t', '\r', '\n', ';' }, StringSplitOptions.RemoveEmptyEntries);
-            var bytes = new byte[tokens.Length];
-            for (int i = 0; i < tokens.Length; i++)
-            {
-                string t = tokens[i].Trim();
-                if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t.Substring(2);
-                bytes[i] = Convert.ToByte(t, 16);
-            }
-            return bytes;
+            return Serial.HexUtil.ParseBytes(s);
         }
 
         // 用反射把解析结果结构体渲染成可读文本（便于新命令无需手写格式化）。
+        // 实现搬到 Serial/ResultFormatter.cs 了：它原先只存在于这一层，于是断言工程
+        // 只好抄一份副本，结果就是「改真代码、测试照旧全绿」。
         private static string FormatObject(object obj)
         {
-            var sb = new StringBuilder();
-            FormatValue(sb, obj, 0);
-            return sb.ToString();
-        }
-
-        private static void FormatValue(StringBuilder sb, object obj, int indent)
-        {
-            string pad = new string(' ', indent);
-            if (obj == null) { sb.AppendLine(pad + "null"); return; }
-
-            Type t = obj.GetType();
-
-            if (obj is Array arr)
-            {
-                for (int i = 0; i < arr.Length; i++)
-                {
-                    object item = arr.GetValue(i);
-                    if (item == null)
-                    {
-                        sb.AppendLine(pad + "[" + i + "] null");
-                        continue;
-                    }
-                    if (IsSimpleValue(item))
-                    {
-                        sb.AppendLine(pad + "[" + i + "] " + item);
-                    }
-                    else
-                    {
-                        // 嵌套的数组 / 结构体：另起一行递归展开
-                        sb.AppendLine(pad + "[" + i + "]");
-                        FormatValue(sb, item, indent + 4);
-                    }
-                }
-                return;
-            }
-
-            if (t.IsPrimitive || obj is string || obj is bool)
-            {
-                sb.AppendLine(pad + obj.ToString());
-                return;
-            }
-
-            if (t.IsEnum)
-            {
-                sb.AppendLine(pad + t.Name + "." + obj);
-                return;
-            }
-
-            // 结构体：按公共字段展开
-            sb.AppendLine(pad + t.Name + ":");
-            foreach (FieldInfo f in t.GetFields())
-            {
-                object v = f.GetValue(obj);
-                sb.Append(pad + "  " + f.Name + ": ");
-                if (v == null)
-                {
-                    sb.AppendLine("null");
-                    continue;
-                }
-                if (IsSimpleValue(v))
-                {
-                    sb.AppendLine(v.ToString());
-                }
-                else
-                {
-                    // 数组 / 嵌套结构体：另起一行递归展开，否则这里只能打印类型名
-                    sb.AppendLine();
-                    FormatValue(sb, v, indent + 4);
-                }
-            }
-        }
-
-        // 能在一行内打印完的值；其余（数组、嵌套结构体）需要递归展开。
-        private static bool IsSimpleValue(object v)
-        {
-            Type t = v.GetType();
-            return t.IsPrimitive || t.IsEnum || v is string || v is decimal;
+            return Serial.ResultFormatter.Format(obj);
         }
 
         // =================================================================
@@ -426,6 +425,27 @@ namespace WpfApp1
 
         // 生成下载帧序列。帧生成的规划逻辑（分帧/对齐/块号/偏移）全部在
         // Rtl8239DownloadPlan 里（纯 C#，可在无 WPF 环境下断言），这里只负责读文件与渲染文本。
+        /// <summary>
+        /// 两种下载模式的约束**完全不同**（对齐要求、容量上限、帧里带不带 64K 块号），
+        /// 所以提示必须跟着模式走。原先只有一条写死给 App 的文案，切到 Firmware 时
+        /// 它说的就是错的——而这是全工具最有 brick 风险的那条路径。
+        /// </summary>
+        private void DownloadType_Checked(object sender, RoutedEventArgs e)
+        {
+            // XAML 解析到 DownloadTypeApp 的 IsChecked="True" 时就会触发这里，
+            // 那一刻 DlHint / DownloadTypeFw 还没被创建出来。
+            if (DlHint == null || DownloadTypeFw == null)
+                return;
+
+            DlHint.Text = DownloadTypeFw.IsChecked == true
+                ? "按 32 字节分帧，自动计算偏移（Firmware 模式不带 64K 块号 SUB）。"
+                  + "镜像偏移字段只有 16 位，上限 64 KB；镜像需按 32 字节对齐（末帧允许 4/8/16/32）。"
+                  + "生成的帧需交给外部 Loader 写入设备——本工具不发送它们。"
+                : "按 32 字节分帧，自动计算 64K 块号（SUB = 0x80 + 块号）与偏移。"
+                  + "镜像需 4 字节对齐，上限 256 KB（4 个 64K 块）。"
+                  + "生成的帧需交给外部 Loader 写入设备——本工具不发送它们。";
+        }
+
         private void GenDownload_Click(object sender, RoutedEventArgs e)
         {
             try
